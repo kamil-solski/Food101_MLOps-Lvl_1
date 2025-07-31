@@ -1,0 +1,89 @@
+from pathlib import Path
+import yaml
+
+# Automatically get project root (2 levels up from this file)
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+# Core folders
+DATA_DIR = PROJECT_ROOT / "Data"
+OUTPUTS_DIR = PROJECT_ROOT / "outputs"
+CHECKPOINTS_DIR = OUTPUTS_DIR / "checkpoints"
+METRICS_DIR = OUTPUTS_DIR / "metrics"
+LOGS_DIR = OUTPUTS_DIR / "logs"
+RUNS_DIR = OUTPUTS_DIR / "runs"
+FIGURES_DIR = OUTPUTS_DIR / "figures"
+PREDICTIONS_DIR = OUTPUTS_DIR / "predictions"
+EXPERIMENTS_DIR = PROJECT_ROOT / "experiments"
+MLFLOW_TRACKING_DIR = EXPERIMENTS_DIR / "mlruns"
+
+def get_paths(config_path=PROJECT_ROOT / "src" / "config.yaml", fold=None, model_name=None):
+    with open(config_path, "r") as f:
+        config = yaml.safe_load(f)
+    
+    dataset_folder = config["dataset"]
+    
+    dataset_dir = DATA_DIR / dataset_folder
+
+    classes_file = dataset_dir / "classes.txt"  # because it is common for all folds folders
+
+    # If K-Fold is used
+    if fold:
+        fold_dir = dataset_dir / fold
+        train_dir = fold_dir / "train"
+        val_dir = fold_dir / "val"
+        test_dir = fold_dir / "test"
+    else:
+        fold_dir = None
+        train_dir = dataset_dir / "train"
+        val_dir = dataset_dir / "val"
+        test_dir = dataset_dir / "test"
+
+    # Create directories
+    required_dirs = [
+        DATA_DIR, OUTPUTS_DIR, CHECKPOINTS_DIR, METRICS_DIR, LOGS_DIR,
+        RUNS_DIR, FIGURES_DIR, PREDICTIONS_DIR, EXPERIMENTS_DIR,
+        MLFLOW_TRACKING_DIR, dataset_dir, train_dir, val_dir, test_dir
+    ]
+    for d in required_dirs:
+        d.mkdir(parents=True, exist_ok=True)
+
+    # Build model-specific paths
+    model_ckpt_path = None
+    loss_plot_path = None
+    if model_name:
+        sub_ckpt_dir = CHECKPOINTS_DIR / dataset_folder
+        sub_fig_dir = FIGURES_DIR / dataset_folder
+
+        if fold:
+            sub_ckpt_dir = sub_ckpt_dir / fold
+            sub_fig_dir = sub_fig_dir / fold
+
+        model_ckpt_path = sub_ckpt_dir / f"{model_name}.pt"
+        loss_plot_path = sub_fig_dir / f"{model_name}_loss_plot.png"
+
+        sub_ckpt_dir.mkdir(parents=True, exist_ok=True)
+        sub_fig_dir.mkdir(parents=True, exist_ok=True)
+        
+        model_ckpt_path.touch(exist_ok=True)
+        loss_plot_path.touch(exist_ok=True)    
+
+    return {
+        "PROJECT_ROOT": PROJECT_ROOT,
+        "DATA_DIR": DATA_DIR,
+        "DATASET_DIR": dataset_dir,
+        "FOLD_DIR": fold_dir,
+        "TRAIN_DIR": train_dir,
+        "VAL_DIR": val_dir,
+        "TEST_DIR": test_dir,
+        "CLASSES_FILE": classes_file,
+        "CHECKPOINTS_DIR": CHECKPOINTS_DIR,
+        "METRICS_DIR": METRICS_DIR,
+        "LOGS_DIR": LOGS_DIR,
+        "RUNS_DIR": RUNS_DIR,
+        "FIGURES_DIR": FIGURES_DIR,
+        "PREDICTIONS_DIR": PREDICTIONS_DIR,
+        "EXPERIMENTS_DIR": EXPERIMENTS_DIR,
+        "MLFLOW_TRACKING_DIR": MLFLOW_TRACKING_DIR,
+        "MODEL_CHECKPOINT_PATH": model_ckpt_path,
+        "LOSS_PLOT_PATH": loss_plot_path
+    }

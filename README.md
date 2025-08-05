@@ -23,7 +23,7 @@ It is impossible to design an entire system in your head. Many functions and dec
   - Canary deployment and rollback strategies
 BONUS: custom created real-time monitoring dashboard
 
-# End-to-End ML pipeline/AI System/ with MLE and MLOps Principles (Food-101)
+# End-to-End ML pipeline/AI System/ with MLE and MLOps Principles (Food-101) - Level 1
 ⚠️ This project is a work in progress. Tutorials and features are under active development. Stay tuned for updates and join me on my journey through Machine Learning Engineering!
 
 This projects provides full ML pipeline (with MLOps principles) for food computer vision food classification, implemented to website. For tutorial purpose we will use two methods of deployment FastAPI and CI/CD to handle copying artifacts (onnx model), build docker image and run tests.
@@ -80,7 +80,7 @@ Project structure:
 ├── Data/                        # Raw, interim, and processed datasets
 │   ├── raw/                     # Original data
 │   ├── processed/                # Preprocessed datasets
-│   ├── interim/                  # Temporary datasets (optional)
+│   └── interim/                  # Temporary datasets (optional)
 │
 ├── notebooks/                    # Jupyter notebooks for experimentation, data exploration and also preprocessing. It is also a good place for feature engineering/selection and saving to files, so it could be later automated in e.g. cross-validation in python (not notebook) file.
 │
@@ -93,13 +93,23 @@ Project structure:
 │   ├── serving/                  # ONNX export helpers, inference sanity tests
 │   ├── utils/                    # Helper functions, common code
 │   ├── cli.py                    # CLI entrypoint (train, export, evaluate)
-│   ├── config.yaml               # Hyperparameters, architecture selection, paths
+│   └── config.yaml               # Hyperparameters, architecture selection, paths
 │
 ├── experiments/                   # MLFlow tracking runs
 │   ├── mlruns/                    # MLFlow local run storage
+│   │   ├── experiment_id         # For example for food-101_30%_tr70_va15_te15_20250802
+│   │   │   ├── run_id            # combination of used fold, model architecture and its hyperparameters
+│   │   │   │   ├── artifacts/
+│   │   │   │   │   ├── model.pt
+│   │   │   │   │   └── loss_accuracy_plot.png  # two plots overlay loss from train validation and accuracy from train and validation         
+│   │   │   │   ├── metrics/
+│   │   │   │   │   ├── train_accuracy
+│   │   │   │   │   ├── train_loss
+...
+│   │   └── models                 # Model registry folder - for saved the best model after evaluation with ROC AUC
 │   └── tracking.db                # (optional) Local SQLite DB for MLFlow
 │
-├── outputs/                        # All model outputs & artifacts
+├── outputs/                        # local folder for artifacts from current run only. Remeber since it is a temporary file it will be cleaned during next cli.py run
 │   ├── checkpoints/                # Exported ONNX or PyTorch models
 │   ├── logs/                       # Training logs, console outputs
 │   ├── metrics/                    # saved metrics in json format
@@ -114,6 +124,11 @@ Project structure:
 │   │   ├── sample_image.jpg        # Test image for inference
 │   │   ├── copy_model.py           # Copy ONNX to website project
 │   │   └── start_website.py        # Spin up/down website Docker Compose
+│   ├── pipeline/                   # full pipeline test
+│   ├── regression/                 # compatibility between old and new code
+│   ├── performance/
+│   ├── smoke/
+│   └── monitoring_alarming/
 │
 ├── scripts/                        # DevOps & automation scripts
 │   ├── deploy_model.sh             # Copy ONNX model to Flask app folder
@@ -355,6 +370,32 @@ Although it could happen for example when user will provide image in negative an
 But that is topic for another lesson - "HOW WE COULD MONITOR DATA DURING INFERNCE?".
 
 Here there is simple data versioning in a form of folders naming. Because of that we will omit data versioning, but for advanced pipelines with databases we should implement it. Because there is no data versioning model versioning doesn't make sense either. Because there are no models to choose from shadow or A/B testing is also pointless. All these simplifications are aimed at make the pipeline easier to understand, so that the operation diagram is not complicated with many branches and loops.
+
+#### Cross validation and hyperparameters tuning
+We use K-Fold Cross-validation during data-prepraration to get dataset variations in folds folders. Dataloaders are running for those folders. This way we will treat each run as specifc combination of hyperarameters and model architecture. So, we can easily compute number of runs (each with own saved model) per single experiment: 
+
+num_architectures * num_folds * num_combinations
+
+But, at the end of training we should have two best models for each architecture, so we have to get averages per hyperparameter combination across folds (for each architecture) pick the best based on values. Here is an example:
+
+|  fold0  |  fold1  |  fold2  |  average  |
+| ------- | ------- | ------- | --------- |
+|  comb1  |  comb1  |  comb1  |   avg1    |
+|  comb2  |  comb2  |  comb2  |   avg2    |
+|  comb3  |  comb3  |  comb3  |   avg3    |
+
+We can compare those models per architecture using ROC and AUC on testing data.
+
+I decided to manually implement hyperparamter automation (and not using GridSearch), because it will give us flexibility and control for future implementations. Understanding how algorithms like GridSearch work is essetial when working with end-to-end automated AI system.
+
+### Models
+We desgin model architectures and place them inside src/model directory (as python files). From there, they will be used to take hyperparameter combination and run on specific fold.
+
+### Metrics and artifacts
+For mlflow each run is combination of fold and hyperparameters with own saved model and plots (loss and accuracy overlay) at the end. I defined an experiment as an entire dataset because it is a constant part of the entire experiment. Its specific folds, model architectures and theirs hyperparameters may change, but the entire dataset used remains the same. 
+All artifacts from current run are saved first to outputs folder and then to proper folder in mlruns (it is main storage for artifacts assigned for their runs). Outputs folder contains only artifacts from current experiment. 
+
+On level 1 of project complexity we won't use database for mlflow, since we don't even use it for data.
 
 ### Inference
 To check how it look like localy you can download Test Website repo that uses flask and nginx. For inference OpenCV is used because it got good support for ONNX models (they use optimized runtimes), because inference efficiency in many cases is crucial 

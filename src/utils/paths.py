@@ -1,5 +1,6 @@
 from pathlib import Path
 import yaml
+import shutil
 
 # Automatically get project root (2 levels up from this file)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -10,23 +11,21 @@ OUTPUTS_DIR = PROJECT_ROOT / "outputs"
 CHECKPOINTS_DIR = OUTPUTS_DIR / "checkpoints"
 METRICS_DIR = OUTPUTS_DIR / "metrics"
 LOGS_DIR = OUTPUTS_DIR / "logs"
-RUNS_DIR = OUTPUTS_DIR / "runs"
 FIGURES_DIR = OUTPUTS_DIR / "figures"
 PREDICTIONS_DIR = OUTPUTS_DIR / "predictions"
 EXPERIMENTS_DIR = PROJECT_ROOT / "experiments"
 MLFLOW_TRACKING_DIR = EXPERIMENTS_DIR / "mlruns"
 
 def get_paths(config_path=PROJECT_ROOT / "src" / "config.yaml", fold=None, model_name=None):
+    # Load dataset name from config
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
-    
+
     dataset_folder = config["dataset"]
-    
     dataset_dir = DATA_DIR / dataset_folder
+    classes_file = dataset_dir / "classes.txt"
 
-    classes_file = dataset_dir / "classes.txt"  # because it is common for all folds folders
-
-    # If K-Fold is used
+    # Dataset split paths
     if fold:
         fold_dir = dataset_dir / fold
         train_dir = fold_dir / "train"
@@ -38,34 +37,31 @@ def get_paths(config_path=PROJECT_ROOT / "src" / "config.yaml", fold=None, model
         val_dir = dataset_dir / "val"
         test_dir = dataset_dir / "test"
 
-    # Create directories
+    # Always create required base directories
     required_dirs = [
         DATA_DIR, OUTPUTS_DIR, CHECKPOINTS_DIR, METRICS_DIR, LOGS_DIR,
-        RUNS_DIR, FIGURES_DIR, PREDICTIONS_DIR, EXPERIMENTS_DIR,
+        FIGURES_DIR, PREDICTIONS_DIR, EXPERIMENTS_DIR,
         MLFLOW_TRACKING_DIR, dataset_dir, train_dir, val_dir, test_dir
     ]
     for d in required_dirs:
         d.mkdir(parents=True, exist_ok=True)
 
-    # Build model-specific paths
+    # Subdirectories and file paths for model checkpoints and plots
     model_ckpt_path = None
-    loss_plot_path = None
+    loss_acc_plot_path = None
+
     if model_name:
-        sub_ckpt_dir = CHECKPOINTS_DIR / dataset_folder
-        sub_fig_dir = FIGURES_DIR / dataset_folder
-
         if fold:
-            sub_ckpt_dir = sub_ckpt_dir / fold
-            sub_fig_dir = sub_fig_dir / fold
-
-        model_ckpt_path = sub_ckpt_dir / f"{model_name}.pt"
-        loss_plot_path = sub_fig_dir / f"{model_name}_loss_plot.png"
-
-        sub_ckpt_dir.mkdir(parents=True, exist_ok=True)
-        sub_fig_dir.mkdir(parents=True, exist_ok=True)
-        
-        model_ckpt_path.touch(exist_ok=True)
-        loss_plot_path.touch(exist_ok=True)    
+            model_ckpt_path = CHECKPOINTS_DIR / fold / f"{model_name}.pt"
+            loss_acc_plot_path = FIGURES_DIR / fold / f"{model_name}_loss_plot.png"
+            # Ensure folders exist
+            (CHECKPOINTS_DIR / fold).mkdir(parents=True, exist_ok=True)
+            (FIGURES_DIR / fold).mkdir(parents=True, exist_ok=True)
+        else:
+            model_ckpt_path = CHECKPOINTS_DIR / f"{model_name}.pt"
+            loss_acc_plot_path = FIGURES_DIR / f"{model_name}_loss_plot.png"
+            CHECKPOINTS_DIR.mkdir(parents=True, exist_ok=True)
+            FIGURES_DIR.mkdir(parents=True, exist_ok=True)
 
     return {
         "PROJECT_ROOT": PROJECT_ROOT,
@@ -79,11 +75,19 @@ def get_paths(config_path=PROJECT_ROOT / "src" / "config.yaml", fold=None, model
         "CHECKPOINTS_DIR": CHECKPOINTS_DIR,
         "METRICS_DIR": METRICS_DIR,
         "LOGS_DIR": LOGS_DIR,
-        "RUNS_DIR": RUNS_DIR,
         "FIGURES_DIR": FIGURES_DIR,
         "PREDICTIONS_DIR": PREDICTIONS_DIR,
         "EXPERIMENTS_DIR": EXPERIMENTS_DIR,
         "MLFLOW_TRACKING_DIR": MLFLOW_TRACKING_DIR,
         "MODEL_CHECKPOINT_PATH": model_ckpt_path,
-        "LOSS_PLOT_PATH": loss_plot_path
+        "LOSS_ACC_PLOT_PATH": loss_acc_plot_path,
     }
+
+def clean_outputs_dir():
+    if OUTPUTS_DIR.exists():
+        print(f"[INFO] Cleaning outputs directory from previous experiment artifacts: {OUTPUTS_DIR}\n")
+        for item in OUTPUTS_DIR.iterdir():
+            if item.is_dir():
+                shutil.rmtree(item)
+            else:
+                item.unlink()

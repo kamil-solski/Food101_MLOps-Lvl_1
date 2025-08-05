@@ -10,6 +10,7 @@ def get_dataloaders(image_size: int, batch_size: int, fold: str = None):
     
     train_dir = paths["TRAIN_DIR"]
     val_dir = paths["VAL_DIR"]
+    test_dir = paths["TEST_DIR"]
     classes_file = paths["CLASSES_FILE"]
 
     transform = transforms.Compose([
@@ -20,6 +21,7 @@ def get_dataloaders(image_size: int, batch_size: int, fold: str = None):
     # Load datasets
     train_data = datasets.ImageFolder(train_dir, transform=transform)
     val_data = datasets.ImageFolder(val_dir, transform=transform)
+    test_data = datasets.ImageFolder(test_dir, transform=transform)
 
     # Load class names manually from file
     with open(classes_file, "r") as f:
@@ -29,7 +31,8 @@ def get_dataloaders(image_size: int, batch_size: int, fold: str = None):
     assert class_names == train_data.classes, "Mismatch between loaded class names and dataset labels"
 
     # Setup DataLoaders
-    train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, num_workers=os.cpu_count() // 4)
+    train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, num_workers=os.cpu_count() // 4)  # you can adjust num_workers
     val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False, num_workers=os.cpu_count() // 4)
-
-    return train_loader, val_loader, class_names
+    test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False, num_workers=os.cpu_count() // 4)
+    
+    return train_loader, val_loader, test_loader, class_names

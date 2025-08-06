@@ -371,12 +371,12 @@ But that is topic for another lesson - "HOW WE COULD MONITOR DATA DURING INFERNC
 
 Here there is simple data versioning in a form of folders naming. Because of that we will omit data versioning, but for advanced pipelines with databases we should implement it. Because there is no data versioning model versioning doesn't make sense either. Because there are no models to choose from shadow or A/B testing is also pointless. All these simplifications are aimed at make the pipeline easier to understand, so that the operation diagram is not complicated with many branches and loops.
 
-#### Cross validation and hyperparameters tuning
+#### Cross validation and hyperparameters automation
 We use K-Fold Cross-validation during data-prepraration to get dataset variations in folds folders. Dataloaders are running for those folders. This way we will treat each run as specifc combination of hyperarameters and model architecture. So, we can easily compute number of runs (each with own saved model) per single experiment: 
 
 num_architectures * num_folds * num_combinations
 
-But, at the end of training we should have two best models for each architecture, so we have to get averages per hyperparameter combination across folds (for each architecture) pick the best based on values. Here is an example:
+But, at the end of training we should have two best models for each architecture, so we have to get averages per hyperparameter combination across folds (for each architecture) pick the best based on values, depending on what metric it is (loss minimization, AUC maximization, accuracy, precision, etc.). Here is an example:
 
 |  fold0  |  fold1  |  fold2  |  average  |
 | ------- | ------- | ------- | --------- |
@@ -384,7 +384,16 @@ But, at the end of training we should have two best models for each architecture
 |  comb2  |  comb2  |  comb2  |   avg2    |
 |  comb3  |  comb3  |  comb3  |   avg3    |
 
-We can compare those models per architecture using ROC and AUC on testing data.
+Now with averages we can normalize:
+
+$${loss\_score} = 1 - \frac{\text{avg\_val\_loss} - \text{min\_val\_loss}}{\text{max\_val\_loss} - \text{min\_val\_loss}}$$
+
+And compute scores (to choose the best):
+$${acc\_score} = \frac{\text{avg\_val\_acc} - \text{min\_val\_acc}}{\text{max\_val\_acc} - \text{min\_val\_acc}}$$
+
+At the end, take those best hypeparameter models and compare them between architectures on test data.
+
+$${score} = \text{acc\_score} \cdot \text{acc\_weight} + \text{loss\_score} \cdot \text{loss\_weight}$$
 
 I decided to manually implement hyperparamter automation (and not using GridSearch), because it will give us flexibility and control for future implementations. Understanding how algorithms like GridSearch work is essetial when working with end-to-end automated AI system.
 

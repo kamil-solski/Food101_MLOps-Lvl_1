@@ -4,7 +4,8 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import torch
 from sklearn.metrics import roc_curve, auc
-
+from sklearn.preprocessing import label_binarize
+import math
 
 def loss_acc_plot(results, output_path):
     epochs = range(len(results['train_loss']))
@@ -23,47 +24,78 @@ def loss_acc_plot(results, output_path):
     output_path.parent.mkdir(parents=True, exist_ok=True)    
     fig.savefig(output_path)
     
-    return fig, str(output_path)
+    return fig
 
-# TODO: make sure that the test data is loaded correctly and that it actually takes the correct loader per fold. In cli.py shouldn't we use once loaded all loaders from get_loaders?
-def plot_all_rocs(model_dict, X_test, y_test, save_path="outputs/figures/combined_roc.png"):
+# TODO: should I seprate logic for inference and plot generation?
+def plot_roc_ovr(model_dict, test_dataloader, class_names):
     """
-    Plots ROC curves for all models and saves to disk. Returns AUC dict and save path.
+    Creates one figure with subplots for each class (OvR ROC), comparing all models.
+    Returns: fig, auc_scores dict {class_name: {model_name: auc}}.
     """
-    plt.figure(figsize=(8, 6))
-    aucs = {}
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    for name, model in model_dict.items():
+    # Gather predictions from all models
+    model_probs = {}  # model_name -> probs (N x C)
+    all_labels = []
+
+    for model_name, model in model_dict.items():
+        model = model.to(device)
         model.eval()
-        with torch.no_grad():
-            probs = model(X_test)
+        all_probs = []
+        all_labels = []
 
-            # Handle binary classification output
-            if probs.shape[1] == 1:
-                probs = torch.sigmoid(probs).squeeze(1)
-            else:
-                probs = torch.softmax(probs, dim=1)[:, 1]  # Binary class prob
+        with torch.inference_mode():
+            for X_batch, y_batch in test_dataloader:
+                X_batch = X_batch.to(device)
+                y_batch = y_batch.to(device)
 
-            probs = probs.cpu().numpy()
-            y_true = y_test.cpu().numpy()
+                logits = model(X_batch)
+                probs = torch.softmax(logits, dim=1)
+                all_probs.append(probs.cpu())
+                all_labels.append(y_batch.cpu())
 
-        fpr, tpr, _ = roc_curve(y_true, probs)
-        auc_value = auc(fpr, tpr)
+        model_probs[model_name] = torch.cat(all_probs).numpy()
+        all_labels = torch.cat(all_labels).numpy()
 
-        plt.plot(fpr, tpr, label=f'{name} (AUC = {auc_value:.3f})')
-        aucs[name] = auc_value
+    y_bin = label_binarize(all_labels, classes=list(range(len(class_names))))
 
-    plt.plot([0, 1], [0, 1], 'k--', label='Random Guess')
-    plt.xlabel("False Positive Rate")
-    plt.ylabel("True Positive Rate")
-    plt.title("ROC Curves for All Models")
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
+    # Create subplots grid
+    num_classes = len(class_names)
+    cols = 3
+    rows = math.ceil(num_classes / cols)
 
-    save_path = Path(save_path)
-    save_path.parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(save_path)
-    plt.close()
+    fig, axes = plt.subplots(rows, cols, figsize=(6 * cols, 5 * rows))
+    axes = axes.flatten()
 
-    return aucs, str(save_path)
+    auc_scores = {}
+
+    for idx, class_name in enumerate(class_names):
+        ax = axes[idx]
+        auc_scores[class_name] = {}
+
+        for model_name, probs in model_probs.items():
+            fpr, tpr, _ = roc_curve(y_bin[:, idx], probs[:, idx])
+            roc_auc = auc(fpr, tpr)
+            auc_scores[class_name][model_name] = roc_auc
+
+            ax.plot(fpr, tpr, label=f"{model_name} (AUC = {roc_auc:.3f})")
+
+        ax.plot([0, 1], [0, 1], 'k--')
+        ax.set_title(f"ROC - {class_name}")
+        ax.set_xlabel("FPR")
+        ax.set_ylabel("TPR")
+        ax.grid(True)
+        ax.legend()
+
+    # Remove unused axes if any
+    for i in range(len(class_names), len(axes)):
+        fig.delaxes(axes[i])
+
+    fig.suptitle("ROC Curves Per Class (OvR)", fontsize=16)
+    fig.tight_layout(rect=[0, 0.03, 1, 0.95])
+
+    return fig, auc_scores
+
+
+def plot_roc_ovo(model_dict, test_dataloader, class_names, save_path="outputs/figures/roc_overlay_ovo.png"):
+    pass

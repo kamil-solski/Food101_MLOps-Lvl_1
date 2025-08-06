@@ -1,5 +1,5 @@
 batch_size: 32
-num_epochs: 50
+num_epochs: 10
 image_size: 64
 learning_rates: [0.0001, 0.001]
 hidden_units: [8, 16]

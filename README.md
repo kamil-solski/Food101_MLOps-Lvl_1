@@ -23,6 +23,8 @@ It is impossible to design an entire system in your head. Many functions and dec
   - Canary deployment and rollback strategies
 BONUS: custom created real-time monitoring dashboard
 
+The course will be divided according to the challenges faced by Machine Learning Engineers when creating automated end-to-end systems. What compromises do they have to face, etc.? For each issue, an example solution will be provided and, if necessary, additional solutions will be described (in the form of code snippets from this repository).
+
 # End-to-End ML pipeline/AI System/ with MLE and MLOps Principles (Food-101) - Level 1
 ⚠️ This project is a work in progress. Tutorials and features are under active development. Stay tuned for updates and join me on my journey through Machine Learning Engineering!
 
@@ -383,17 +385,6 @@ But, at the end of training we should have two best models for each architecture
 |  comb1  |  comb1  |  comb1  |   avg1    |
 |  comb2  |  comb2  |  comb2  |   avg2    |
 |  comb3  |  comb3  |  comb3  |   avg3    |
-
-Now with averages we can normalize:
-
-$${loss\_score} = 1 - \frac{\text{avg\_val\_loss} - \text{min\_val\_loss}}{\text{max\_val\_loss} - \text{min\_val\_loss}}$$
-
-And compute scores (to choose the best):
-$${acc\_score} = \frac{\text{avg\_val\_acc} - \text{min\_val\_acc}}{\text{max\_val\_acc} - \text{min\_val\_acc}}$$
-
-At the end, take those best hypeparameter models and compare them between architectures on test data.
-
-$${score} = \text{acc\_score} \cdot \text{acc\_weight} + \text{loss\_score} \cdot \text{loss\_weight}$$
 
 I decided to manually implement hyperparamter automation (and not using GridSearch), because it will give us flexibility and control for future implementations. Understanding how algorithms like GridSearch work is essetial when working with end-to-end automated AI system.
 

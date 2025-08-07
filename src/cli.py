@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.optim as optim
 from datetime import datetime
 import matplotlib.pyplot as plt
-from pathlib import Path
+from mlflow.tracking import MlflowClient
 
 from src.evaluation import loss_acc_plot, plot_roc_ovr
 from src.models import architectures
@@ -17,13 +17,17 @@ from src.evaluation.crossval_score import (
     filter_by_loss_discrepancy,
     group_by_arch_and_config,
     score_models,
-    select_best_configs
+    select_best_configs,
+    load_best_models,
+    select_best_model_from_auc
 )
 
 
 mlflow.set_tracking_uri(MLFLOW_TRACKING_DIR.as_uri())
 
 def main():
+    
+    # Data and config loading
     with open("src/config.yaml", "r") as f:
         config = yaml.safe_load(f)
 
@@ -36,6 +40,7 @@ def main():
     dataset_path = DATA_DIR / dataset_name
     folds = sorted([d for d in dataset_path.iterdir() if d.is_dir() and d.name.startswith("fold")])
 
+    # Handle cross-validation
     for fold in folds:
         print(f"\n[INFO] Running: {fold.name}")
 
@@ -45,6 +50,7 @@ def main():
             fold=fold
         )
 
+        # Handle loading architectures, hyperparamters and training on that
         for arch_name in config["architectures"]:
             model_class = architectures[arch_name]
             for hu in config["hidden_units"]:
@@ -75,7 +81,8 @@ def main():
                         )
                         
                         # Save training curve as image
-                        fig = loss_acc_plot(results, output_path=paths["LOSS_ACC_PLOT_PATH"])
+                        fig = loss_acc_plot(results)
+                        fig.savefig(paths["LOSS_ACC_PLOT_PATH"])
                         mlflow.log_figure(fig, artifact_file=paths["LOSS_ACC_PLOT_PATH"].name)
                         plt.close(fig)  # to prevent memory leak if too many plots are created. You won't see them during trainig anyway but in memory they will be saved 
     
@@ -88,36 +95,19 @@ def main():
     scored = score_models(grouped_runs, val_metric="val_acc", acc_weight=0.7, loss_weight=0.3)  # you can modify weights based on how important you think those metrics sould be
     best_config = select_best_configs(scored)
     
-    # Test the best models and compare with ROC AUC
+    # Loading unified dataset for testing
     _, _, test_loader, _ = get_dataloaders(
         image_size=config["image_size"],
         batch_size=config["batch_size"],
         fold="fold0"  # consistent fold for testing. We could use any fold we want or dedicated held-out testing set 
     )
     
-    model_dict = {}
+    # Loading models from crossval_score.py
+    model_dict = load_best_models(best_config=best_config, experiment_name=experiment_name)
     
-    for _, row in best_config.iterrows():
-        arch = row["architecture"]
-        config_str = row["config"]
+    #print(model_dict)
     
-        # Parse config
-        hu = int(config_str.split("hu=")[1].split(",")[0])
-        lr = float(config_str.split("lr=")[1])
-
-        # Rebuild model
-        model_class = architectures[arch]
-        model = model_class(input_shape=3, hidden_units=hu, output_shape=len(class_names))
-        model = model.to("cuda" if torch.cuda.is_available() else "cpu")
-
-        # Load weights
-        model_name = f"{arch}_hu{hu}_lr{lr}"
-        paths = get_paths(fold="fold0", model_name=model_name)  # consistent fold
-        model.load_state_dict(torch.load(paths["MODEL_CHECKPOINT_PATH"], map_location="cpu"))
-        model.eval()
-
-        model_dict[arch] = model
-     
+    # Plot ROCs per class for all models
     fig, auc_scores = plot_roc_ovr(
         model_dict=model_dict,
         test_dataloader=test_loader,
@@ -125,20 +115,39 @@ def main():
     )
 
     # Save locally
-    save_path = FIGURES_DIR / "roc_per_class.png"
-    save_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(save_path)
+    #save_path = FIGURES_DIR / "roc_per_class.png"
+    #save_path.parent.mkdir(parents=True, exist_ok=True)
+    #fig.savefig(save_path)
 
     # Log to MLflow
     with mlflow.start_run(run_name="evaluate_roc_experiment"):
         mlflow.log_figure(fig, artifact_file="roc_per_class.png")
         for cls, model_aucs in auc_scores.items():
-            for model_name, auc_val in model_aucs.items():
-                mlflow.log_metric(f"AUC_{cls}_{model_name}", auc_val)
+            for model_name, meta in model_aucs.items():
+                mlflow.log_metric(f"AUC_{cls}_{model_name}", meta["auc"])
 
     plt.close(fig)  # optional memory cleanup
-        
-                            
+    
+    best_model, _ = select_best_model_from_auc(auc_scores=auc_scores)  # we could save to temp file best score auc and during next experiment (doesn't matter how it would be called) compare recent current with previous and decide using client if we should update to production
+    
+    # Register best model
+    print(f"\n[INFO] Registering best model...")
+
+    client = MlflowClient()   # we can use low-api to instead updating manage new model, add complicated logic etc.
+    pass
+
+    
+    for model_name, run_id in best_model.items():
+        model_registry_name = "best_model"  # you can change it to whatever you like
+
+        # Register new version
+        result = mlflow.register_model(
+            model_uri=f"runs:/{run_id}/model",
+            name=model_registry_name
+        )
+        print(f"[INFO] Registered '{model_name}' as version {result.version} in '{model_registry_name}'")  # 
+    
+             
 if __name__ == "__main__":
     clean_outputs_dir()
     main()
@@ -147,7 +156,3 @@ if __name__ == "__main__":
 # cd Projekty_py/Food101_MLOps-Lvl_1
 # PYTHONPATH=. python src/cli.py
 # mlflow ui --backend-store-uri experiments/mlruns
-
-# TODO: fix paths for plots (unfied way of getting paths for plots and model checkpoints). Move saving plots logic to cli.py
-# TODO: choose the best overall model from roc tested models
-#       * figure out how to write better pipeline for crossval_score.py to include flexible function for selecting best model from metric (accuracy or auc)

@@ -3,11 +3,14 @@ Tags are essential in our use case (especially architecture and fold) bacasuse t
 Because we got folds we need to get averages per hyperparameter combination across folds (for each architecture).
 So, from num_architectures * num_folds * num_combination we should get num_architectures of models.
 We will filter by tags, averege per combination and pick the highest value for each architecture.
+
+It is better to load models from mlruns than temporary because it gives us more options (we are not limited to only current run). In cli.py we could modify script to choose the best models from multiple experiments
 """
-import matplotlib.pyplot as plt
 import mlflow
 import pandas as pd
 from mlflow.tracking import MlflowClient
+from collections import defaultdict
+import numpy as np
 
 # 
 def get_all_runs(experiment_name: str) -> pd.DataFrame:
@@ -61,4 +64,74 @@ def score_models(df: pd.DataFrame, val_metric: str = "val_acc",
 
 #
 def select_best_configs(df_scored: pd.DataFrame) -> pd.DataFrame:
-    return df_scored.loc[df_scored.groupby("architecture")["score"].idxmax()].reset_index(drop=True)
+    return df_scored.loc[df_scored.groupby("architecture")["score"].idxmax()].reset_index(drop=True) 
+
+# 
+def load_best_models(best_config: pd.DataFrame, experiment_name: str) -> dict:
+    """
+    Loads best models from MLflow using best_config dataframe.
+    Returns: dict of {architecture_name: model}
+    """
+    model_dict = {}
+
+    for _, row in best_config.iterrows():
+        arch = row["architecture"]
+        config_str = row["config"]
+
+        # Extract hyperparameters
+        hu = int(config_str.split("hu=")[1].split(",")[0])
+        lr = float(config_str.split("lr=")[1])
+
+        # Search for the corresponding run
+        experiment = mlflow.get_experiment_by_name(experiment_name)
+        runs = mlflow.search_runs(
+            experiment_ids=[experiment.experiment_id],
+            filter_string=f"tags.architecture = '{arch}' and tags.config = '{config_str}'",
+            output_format="pandas"
+        )
+        if runs.empty:
+            raise ValueError(f"No run found for arch={arch}, config={config_str}")
+        
+        # Use the best-scoring run (highest val_acc or final score)
+        best_run = runs.sort_values("metrics.val_acc", ascending=False).iloc[0]
+        run_id = best_run.run_id
+
+        # Load model from MLflow artifact
+        model = mlflow.pytorch.load_model(f"runs:/{run_id}/model")
+        model.eval()
+        model_dict[arch] = {
+            "model": model,
+            "run_id": run_id,
+            "hu": hu,
+            "lr": lr
+        }
+
+    return model_dict
+
+#
+def select_best_model_from_auc(auc_scores: dict) -> dict:
+    """
+    auc_scores: dict[class_name][model_name] = {"auc": float, "run_id": str}
+
+    Returns:
+        best_model_dict: {model_full_name: run_id}
+        model_avg_auc: {model_full_name: average_auc}
+    """
+    model_totals = defaultdict(list)
+    model_run_ids = {}
+
+    for class_aucs in auc_scores.values():
+        for model_name, data in class_aucs.items():
+            model_totals[model_name].append(data["auc"])
+            model_run_ids[model_name] = data["run_id"]
+
+    model_avg_auc = {
+        model: np.mean(scores) for model, scores in model_totals.items()
+    }
+
+    best_model_name = max(model_avg_auc, key=model_avg_auc.get)
+    best_run_id = model_run_ids[best_model_name]
+
+    best_model_dict = {best_model_name: best_run_id}
+
+    return best_model_dict, model_avg_auc

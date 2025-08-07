@@ -68,10 +68,9 @@ def train_with_mlflow(model: torch.nn.Module,
     mlflow.log_metric("train_time_sec", total_time)
     mlflow.set_tag("training_time_readable", f"{total_time:.2f} sec")
     
-    model_path = paths["MODEL_CHECKPOINT_PATH"]
+    model_path = paths["MODEL_CHECKPOINT_PATH"]  # raw models. They could be removed in the future. Mlflow doesn't use those checkpoints anyway
     torch.save(model.state_dict(), model_path)
-    mlflow.log_artifact(str(model_path))
-    
+        
     device = next(model.parameters()).device
     
     # Prepare input example and signature
@@ -82,7 +81,7 @@ def train_with_mlflow(model: torch.nn.Module,
     
     mlflow.pytorch.log_model(
         model, 
-        name="models",
+        name="model",
         input_example=example_input[:1].cpu().numpy(),
         signature=signature
     )

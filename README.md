@@ -102,13 +102,12 @@ Project structure:
 │   │   ├── experiment_id         # For example for food-101_30%_tr70_va15_te15_20250802
 │   │   │   ├── run_id            # combination of used fold, model architecture and its hyperparameters
 │   │   │   │   ├── artifacts/
-│   │   │   │   │   ├── model.pt
 │   │   │   │   │   └── loss_accuracy_plot.png  # two plots overlay loss from train validation and accuracy from train and validation         
 │   │   │   │   ├── metrics/
 │   │   │   │   │   ├── train_accuracy
 │   │   │   │   │   ├── train_loss
 ...
-│   │   └── models                 # Model registry folder - for saved the best model after evaluation with ROC AUC
+│   │   └── models                 # logged models with mlflow for all runs (with signature)
 │   └── tracking.db                # (optional) Local SQLite DB for MLFlow
 │
 ├── outputs/                        # local folder for artifacts from current run only. Remeber since it is a temporary file it will be cleaned during next cli.py run

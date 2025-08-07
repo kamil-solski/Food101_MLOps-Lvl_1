@@ -107,7 +107,9 @@ Project structure:
 │   │   │   │   │   ├── train_accuracy
 │   │   │   │   │   ├── train_loss
 ...
-│   │   └── models                 # logged models with mlflow for all runs (with signature)
+│   │   │   └── models             # logged models with mlflow for all runs in single experiment (with signature)
+...
+│   │   └── models                 # model registry
 │   └── tracking.db                # (optional) Local SQLite DB for MLFlow
 │
 ├── outputs/                        # local folder for artifacts from current run only. Remeber since it is a temporary file it will be cleaned during next cli.py run

@@ -1,5 +1,6 @@
 This project was initially inspired by Daniel Bourke's PyTorch Deep Learning series (https://github.com/mrdbourke/pytorch-deep-learning.git). While the overall system, pipeline design, and MLOps integrations are original and significantly expanded, one early notebook in this repository was adapted from concepts and patterns explored in his tutorials.
 
+In this project we will deal with real-time inference (because we expect low latency predictions). Even though it is not continuous real-time inference (with no downtime like in monitoring systems), it is still considered real-time. Even if user provides with two or more photos, if model process requests one by one and retrun immediately predictions for each, it is still real-time inference.
 It is impossible to design an entire system in your head. Many functions and decisions regarding implementation are made during the course of the project, so it is worth starting from the ground up. In this course we will learn how to create and design AI systems in three levels of complexity:
 
 * Level 1 (foundational pipeline):
@@ -112,7 +113,7 @@ Project structure:
 │   │   └── models                 # model registry
 │   └── tracking.db                # (optional) Local SQLite DB for MLFlow
 │
-├── outputs/                        # local folder for artifacts from current run only. Remeber since it is a temporary file it will be cleaned during next cli.py run
+├── outputs/                        # local folder for artifacts from current run only. Remember since it is a temporary file it will be cleaned during next cli.py run
 │   ├── checkpoints/                # Exported ONNX or PyTorch models
 │   ├── logs/                       # Training logs, console outputs
 │   ├── metrics/                    # saved metrics in json format
@@ -138,7 +139,7 @@ Project structure:
 │   ├── run_local_mlflow.sh         # Start MLFlow UI locally
 │   └── entrypoint.sh               # Entrypoint script for Docker modes
 │
-├── deployment/                      # Deployment & CI/CD infra
+├── platform/                      # containers, orchestration, CI/CD infra, monitoring hooks
 │   ├── infrastructure/              # Infra and pipeline configs
 │   │   ├── github-actions/          # GitHub Actions YAML workflows
 │   │   │   ├── ml_pipeline.yml      # ML training + model deployment
@@ -152,11 +153,13 @@ Project structure:
 │
 ├── logs/                             # Local dev logs (optional gitignored)
 ├── inference_api                     # entire logic for program that is using our trained model (FastAPI)
-│   ├── main
-│   ├── inference
-│   ├── config.yaml
+│   ├── main.py                # FastAPI app + endpoints
+│   ├── inference/
+│   │   ├── loader.py          # resolve & load model (MLFlow alias or local path)
+│   │   ├── predictor.py       # preprocess -> infer -> postprocess
+│   ├── config.yaml            # serving config
 │   └── utils/
-│       └── postprocessing
+│       └── postprocessing.py  # top-k, label mapping etc.
 │
 ├── .env                       # Secrets, MLflow URIs, etc.
 ├── pyproject.toml             # Poetry environment & dependencies
@@ -392,6 +395,9 @@ I decided to manually implement hyperparamter automation (and not using GridSear
 ### Models
 We desgin model architectures and place them inside src/model directory (as python files). From there, they will be used to take hyperparameter combination and run on specific fold.
 
+--onnx_registry.py:
+It does make sense to save only the best model to onnx and then register it. We find best model, then log it as onnx and register with alias challanger. Next, if this is first run ever and there is no champion, that model which is already onnx is promoted in registry to champion. Promoting logic could be used later when updating model with A/B or Shadow testing.
+
 ### Metrics and artifacts
 For mlflow each run is combination of fold and hyperparameters with own saved model and plots (loss and accuracy overlay) at the end. I defined an experiment as an entire dataset because it is a constant part of the entire experiment. Its specific folds, model architectures and theirs hyperparameters may change, but the entire dataset used remains the same. 
 All artifacts from current run are saved first to outputs folder and then to proper folder in mlruns (it is main storage for artifacts assigned for their runs). Outputs folder contains only artifacts from current experiment. 
@@ -399,7 +405,7 @@ All artifacts from current run are saved first to outputs folder and then to pro
 On level 1 of project complexity we won't use database for mlflow, since we don't even use it for data.
 
 ### Inference
-To check how it look like localy you can download Test Website repo that uses flask and nginx. For inference OpenCV is used because it got good support for ONNX models (they use optimized runtimes), because inference efficiency in many cases is crucial 
+To check how it look like localy you can download Test Website repo that uses flask and nginx. For inference OpenCV is used because it got good support for ONNX models (they use optimized runtimes), because inference efficiency in many cases is crucial. 
 
 ### End
 Once you understand how the code works and why it was designed this way, you can move on to analyzing my other projects, where the process is more practical and complete (it creates the life cycle of a working artificial intelligence system).

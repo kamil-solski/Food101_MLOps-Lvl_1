@@ -12,6 +12,7 @@ from src.models import architectures
 from src.data.dataloader import get_dataloaders
 from src.training.train import train_with_mlflow
 from src.utils.paths import DATA_DIR, get_paths, MLFLOW_TRACKING_DIR, clean_outputs_dir, FIGURES_DIR
+from src.utils.onnx_registry import ensure_onnx_and_register, set_aliases_after_register
 from src.evaluation.crossval_score import (
     get_all_runs,
     filter_by_loss_discrepancy,
@@ -114,7 +115,7 @@ def main():
         class_names=class_names
     )
 
-    # Save locally
+    # Save locally - will be deleted in future version
     #save_path = FIGURES_DIR / "roc_per_class.png"
     #save_path.parent.mkdir(parents=True, exist_ok=True)
     #fig.savefig(save_path)
@@ -133,21 +134,26 @@ def main():
     # Register best model
     print(f"\n[INFO] Registering best model...")
 
-    client = MlflowClient()   # we can use low-api to instead updating manage new model, add complicated logic etc.
-    pass
-
+    client = MlflowClient()
     
     for model_name, run_id in best_model.items():
-        model_registry_name = "best_model"  # you can change it to whatever you like
+        model_registry_name = "best_model"  # you can change it to whatever you like. In order it to be updated it is better if name would be static
 
         # Register new version
         result = mlflow.register_model(
-            model_uri=f"runs:/{run_id}/model",
+            model_uri=f"runs:/{run_id}/model",  
             name=model_registry_name
         )
-        print(f"[INFO] Registered '{model_name}' as version {result.version} in '{model_registry_name}'")  # 
-    
+        print(f"[INFO] Registered '{model_name}' as version {result.version} in '{model_registry_name}'")    
              
+        # Assign challenger alias to the newest registered version
+        client.set_registered_model_alias(
+            name=model_registry_name,
+            version=result.version,
+            alias="challenger"
+        )
+                
+        
 if __name__ == "__main__":
     clean_outputs_dir()
     main()

@@ -12,7 +12,7 @@ from src.models import architectures
 from src.data.dataloader import get_dataloaders
 from src.training.train import train_with_mlflow
 from src.utils.paths import DATA_DIR, get_paths, MLFLOW_TRACKING_DIR, clean_outputs_dir, FIGURES_DIR
-from src.utils.onnx_registry import ensure_onnx_and_register, set_aliases_after_register
+from src.serving.onnx_registry import ensure_onnx_and_register, ensure_alias_post_register
 from src.evaluation.crossval_score import (
     get_all_runs,
     filter_by_loss_discrepancy,
@@ -87,6 +87,8 @@ def main():
                         mlflow.log_figure(fig, artifact_file=paths["LOSS_ACC_PLOT_PATH"].name)
                         plt.close(fig)  # to prevent memory leak if too many plots are created. You won't see them during trainig anyway but in memory they will be saved 
     
+    # TODO: add cleaning for train and val loaders
+    
     # get the best models for each architecture from cross-validation
     print("\n[INFO] Running automatic model selection from cross-validation results...")
     
@@ -97,10 +99,10 @@ def main():
     best_config = select_best_configs(scored)
     
     # Loading unified dataset for testing
-    _, _, test_loader, _ = get_dataloaders(
+    _, _, test_loader, _ = get_dataloaders( 
         image_size=config["image_size"],
         batch_size=config["batch_size"],
-        fold="fold0"  # consistent fold for testing. We could use any fold we want or dedicated held-out testing set 
+        fold=None  # then it will use common (heldout) test set
     )
     
     # Loading models from crossval_score.py
@@ -135,23 +137,25 @@ def main():
     print(f"\n[INFO] Registering best model...")
 
     client = MlflowClient()
-    
-    for model_name, run_id in best_model.items():
-        model_registry_name = "best_model"  # you can change it to whatever you like. In order it to be updated it is better if name would be static
+    model_registry_name = "best_model"
 
-        # Register new version
-        result = mlflow.register_model(
-            model_uri=f"runs:/{run_id}/model",  
-            name=model_registry_name
+    for model_name, run_id in best_model.items():
+        # 1) ensure ONNX exists for this run and register that ONNX
+        version = ensure_onnx_and_register(
+            run_id=run_id,
+            registry_name=model_registry_name, 
+            image_size=config["image_size"],         # match training input
+            class_names=class_names,
+            input_name="images",                     # keep consistent with export & inference
+            output_name="logits",
+            opset=13,
+            await_registration_for=300
         )
-        print(f"[INFO] Registered '{model_name}' as version {result.version} in '{model_registry_name}'")    
-             
-        # Assign challenger alias to the newest registered version
-        client.set_registered_model_alias(
-            name=model_registry_name,
-            version=result.version,
-            alias="challenger"
-        )
+        print(f"[INFO] Registered ONNX for '{model_name}' as version {version} in '{model_registry_name}'")
+
+        # 2) aliasing
+        alias = ensure_alias_post_register(client, model_registry_name, version)
+        print(f"[INFO] Set alias '{alias}' -> version {version}")
                 
         
 if __name__ == "__main__":
@@ -162,3 +166,8 @@ if __name__ == "__main__":
 # cd Projekty_py/Food101_MLOps-Lvl_1
 # PYTHONPATH=. python src/cli.py
 # mlflow ui --backend-store-uri experiments/mlruns
+
+''' Promotion to champion after A/B or Shadow testing
+from src.utils.onnx_registry import promote_challenger_to_champion
+promote_challenger_to_champion(client, "best_model", keep_prev_alias=True, clear_challenger=True)
+'''

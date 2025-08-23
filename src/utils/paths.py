@@ -6,15 +6,15 @@ import shutil
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 # Core folders
-DATA_DIR = PROJECT_ROOT / "Data"
+DATA_DIR = PROJECT_ROOT / "Data"  # required to exist else raise error
 OUTPUTS_DIR = PROJECT_ROOT / "outputs"
 CHECKPOINTS_DIR = OUTPUTS_DIR / "checkpoints"
 METRICS_DIR = OUTPUTS_DIR / "metrics"
 LOGS_DIR = OUTPUTS_DIR / "logs"
 FIGURES_DIR = OUTPUTS_DIR / "figures"
 PREDICTIONS_DIR = OUTPUTS_DIR / "predictions"
-EXPERIMENTS_DIR = PROJECT_ROOT / "experiments"
-MLFLOW_TRACKING_DIR = EXPERIMENTS_DIR / "mlruns"
+EXPERIMENTS_DIR = PROJECT_ROOT / "experiments"  # created automatically
+MLFLOW_TRACKING_DIR = EXPERIMENTS_DIR / "mlruns"  # created automatically
 
 def get_paths(config_path=PROJECT_ROOT / "src" / "config.yaml", fold=None, model_name=None):
     # Load dataset name from config
@@ -25,23 +25,21 @@ def get_paths(config_path=PROJECT_ROOT / "src" / "config.yaml", fold=None, model
     dataset_dir = DATA_DIR / dataset_folder
     classes_file = dataset_dir / "classes.txt"
 
-    # Dataset split paths
-    if fold:
+    test_dir = dataset_dir / "test"  # global heldout set
+    fold_dir = None
+    train_dir = None
+    val_dir = None
+
+    # Dataset split paths - to define paths for dataloader for folds folders
+    if fold is not None:
         fold_dir = dataset_dir / fold
         train_dir = fold_dir / "train"
         val_dir = fold_dir / "val"
-        test_dir = fold_dir / "test"
-    else:
-        fold_dir = None
-        train_dir = dataset_dir / "train"
-        val_dir = dataset_dir / "val"
-        test_dir = dataset_dir / "test"
 
-    # Always create required base directories
-    required_dirs = [
-        DATA_DIR, OUTPUTS_DIR, CHECKPOINTS_DIR, METRICS_DIR, LOGS_DIR,
-        FIGURES_DIR, PREDICTIONS_DIR, EXPERIMENTS_DIR,
-        MLFLOW_TRACKING_DIR, dataset_dir, train_dir, val_dir, test_dir
+    # These folders are required becuase algorithm will put some temoporary results here. Before new experiment run OUTPUTS_DIR will be cleaned
+    required_dirs = [ 
+        OUTPUTS_DIR, CHECKPOINTS_DIR, METRICS_DIR, LOGS_DIR,
+        FIGURES_DIR, PREDICTIONS_DIR 
     ]
     for d in required_dirs:
         d.mkdir(parents=True, exist_ok=True)

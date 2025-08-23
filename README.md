@@ -1,7 +1,7 @@
 This project was initially inspired by Daniel Bourke's PyTorch Deep Learning series (https://github.com/mrdbourke/pytorch-deep-learning.git). While the overall system, pipeline design, and MLOps integrations are original and significantly expanded, one early notebook in this repository was adapted from concepts and patterns explored in his tutorials.
 
 In this project we will deal with real-time inference (because we expect low latency predictions). Even though it is not continuous real-time inference (with no downtime like in monitoring systems), it is still considered real-time. Even if user provides with two or more photos, if model process requests one by one and retrun immediately predictions for each, it is still real-time inference.
-It is impossible to design an entire system in your head. Many functions and decisions regarding implementation are made during the course of the project, so it is worth starting from the ground up. In this course we will learn how to create and design AI systems in three levels of complexity:
+It is impossible to design an entire system in your head. Many functions and decisions regarding implementation are made during the course of the project, so it is worth starting from the ground up. In this course we will learn how to create and design AI systems in three levels of complexity. Why this way? The more you delve into the complexity of AI systems, the more you realize the trade-offs involved. Like it is not necessarily a bad thing, but it will have consequences that will become apparent later on, so you need to be aware of them (for example log with onnx and then register or leave pytorch format for registry and convert during inference run). By starting with simpler solutions, you will be able to grasp what it is all about, ask questions, and adopt optimal implementation strategies.
 
 * Level 1 (foundational pipeline):
   - The skeleton of AI system - how system works?
@@ -25,6 +25,16 @@ It is impossible to design an entire system in your head. Many functions and dec
 BONUS: custom created real-time monitoring dashboard
 
 The course will be divided according to the challenges faced by Machine Learning Engineers when creating automated end-to-end systems. What compromises do they have to face, etc.? For each issue, an example solution will be provided and, if necessary, additional solutions will be described (in the form of code snippets from this repository).
+
+# How to do end-to-end projects?:
+1) create prototypes for training models pipeline and inference in jupyter notebooks
+2) implement code to python files in project structure (with necessary modifications)
+3) test training loop in python files (small dataset and few epochs) to see if there are no errors
+4) create inference logic in python files
+5) connect both training and inference logic (with best model) and check if broader pipeline works (from training to deployment on python files)
+6) contenarize with docker
+7) test containers
+8) write proper tests starting from sanity tests (they should be imported from root_project/tests folder to proper files)
 
 # End-to-End ML pipeline/AI System/ with MLE and MLOps Principles (Food-101) - Level 1
 ⚠️ This project is a work in progress. Tutorials and features are under active development. Stay tuned for updates and join me on my journey through Machine Learning Engineering!
@@ -153,12 +163,13 @@ Project structure:
 │
 ├── logs/                             # Local dev logs (optional gitignored)
 ├── inference_api                     # entire logic for program that is using our trained model (FastAPI)
-│   ├── main.py                # FastAPI app + endpoints
+│   ├── main.py                # FastAPI app + endpoints. Run this file for local testing just like cli.py for training
 │   ├── inference/
 │   │   ├── loader.py          # resolve & load model (MLFlow alias or local path)
 │   │   ├── predictor.py       # preprocess -> infer -> postprocess
 │   ├── config.yaml            # serving config
 │   └── utils/
+│       ├── helpers.py         # some helpers functions
 │       └── postprocessing.py  # top-k, label mapping etc.
 │
 ├── .env                       # Secrets, MLflow URIs, etc.
@@ -168,7 +179,7 @@ Project structure:
 └── README.md
 ```
 
-conda env is needed only for notebooks. It uses the same pyproject.toml that docker containers (later implementation) will be using
+conda env is needed only for notebooks. It uses the same pyproject.toml that docker containers (later implementation) will be using.
 
 ### MLOps and ML models life cycle - human in the loop
 I see here three main blocks. First is data preparation that could be done in notebooks. User here can: extract/select features, create setup for cross-validation etc. Second is when data is ready, running training and experiments. User here can: choose hyperparameters, change architectures, schedule learning, check training metrics and monitoring artifacts etc. Third, when models are saved is deployment, where the best model is selected converted to onnx and implemented into inference code. The tests are preformed and the implementation of the model and its inference are monitored. This is the end of one life cycle of AI systems, users here monitor and check results of entire pipeline (like Data Scientist, Data Engineers and ML Engineers), but people that edit logic of system on which others work are ML Engineers and if designed points of human interaction with the system are insufficient, ML Engineers modify the project code.
@@ -183,7 +194,7 @@ This project involves inference of model on website with FastAPI. For simplicity
 Docker-compose file will contain only Dockerfile for ML pipeline and Website, but it could also other container like postgres database.
 
 #### How to run:
-There are three steps and places controlled by user to interact with project:
+There are three steps and places controlled by user to interact with project. When creating end-to-end systems, containerization is the final step once all scripts have been checked locally.
 
 In Dockerfile we execute custom scipt which specify MODE of run:
 CMD ["bash", "scripts/entrypoint.sh"]
@@ -397,6 +408,9 @@ We desgin model architectures and place them inside src/model directory (as pyth
 
 --onnx_registry.py:
 It does make sense to save only the best model to onnx and then register it. We find best model, then log it as onnx and register with alias challanger. Next, if this is first run ever and there is no champion, that model which is already onnx is promoted in registry to champion. Promoting logic could be used later when updating model with A/B or Shadow testing.
+
+When we train a new best model it is saved as a new version of "best_model" with challanger alias, but if no champion version exist yet, we immediately promote the model to champion without creating a version for challenger.
+When we will have another champion later previous is marked as prev_champion.
 
 ### Metrics and artifacts
 For mlflow each run is combination of fold and hyperparameters with own saved model and plots (loss and accuracy overlay) at the end. I defined an experiment as an entire dataset because it is a constant part of the entire experiment. Its specific folds, model architectures and theirs hyperparameters may change, but the entire dataset used remains the same. 

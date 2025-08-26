@@ -55,4 +55,4 @@ async def predict(file: UploadFile = File(...)):
 # python -m uvicorn inference_api.main:app --host 0.0.0.0 --port 8000 --reload
 # curl -s http://localhost:8000/health | jq
 # curl -s -X POST http://localhost:8000/predict -F "file=@Data/cannoli.png" | jq
-# You should see classes ids and probabilities for them
+# You should see classes and probabilities for them

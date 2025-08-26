@@ -1,4 +1,3 @@
-# src/utils/onnx_registry.py
 from __future__ import annotations
 from pathlib import Path
 from typing import Optional, List
@@ -117,7 +116,7 @@ def ensure_onnx_and_register(
             registered_model_name=None,
         )
         if class_names:
-            mlflow.log_dict({"classes": class_names}, artifact_file="onnx_model/labels.json")
+            mlflow.log_dict({"classes": class_names}, artifact_file="onnx_model/labels.json")  # TODO: just log as labels.json, correct also loader.py
 
     result = mlflow.register_model(
         model_uri=f"runs:/{run_id}/onnx_model",

@@ -1,110 +1,86 @@
 from __future__ import annotations
-from typing import Any, Dict, List, Optional, Tuple
-from pathlib import Path
+from typing import Any, Dict, Optional, Tuple, List
 import os, json, yaml
-
-import onnx
 import onnxruntime as ort
 import mlflow
 from mlflow.tracking import MlflowClient
-
+from mlflow.exceptions import MlflowException, RestException
 from src.utils.paths import MLFLOW_TRACKING_DIR
-from inference_api.utils.helpers import _get_by_alias, _latest_version
 
-# Load serving config (providers, image_size, top_k, etc.)
 with open("inference_api/config.yaml", "r") as f:
     SERVE_CFG = yaml.safe_load(f)
 
 mlflow.set_tracking_uri(MLFLOW_TRACKING_DIR.as_uri())
 
-
-
-# ---------- Artifacts ----------
-def _try_download(run_id: str, path: str) -> str | None:
+def _get_by_alias(client: MlflowClient, name: str, alias: str):
     try:
-        return mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path=path)
+        return client.get_model_version_by_alias(name=name, alias=alias)
+    except (MlflowException, RestException):
+        return None
+
+def _latest_version(client: MlflowClient, name: str):
+    vers = client.search_model_versions(f"name = '{name}'")
+    if not vers:
+        return None
+    vers.sort(key=lambda v: int(v.last_updated_timestamp or 0), reverse=True)
+    return vers[0]
+
+def _try_download(run_id: str, rel_path: str) -> Optional[str]:
+    try:
+        return mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path=rel_path)
     except Exception:
         return None
 
-def _download_onnx(client: MlflowClient, run_id: str) -> str:
-    # 1) Preferred: download the whole MLflow ONNX flavor directory
+def _download_run_onnx_dir(run_id: str) -> Tuple[str, str]:
+    """
+    Download the run's 'onnx_model' directory so external .data files are present.
+    Returns (onnx_dir, model_path).
+    """
     onnx_dir = _try_download(run_id, "onnx_model")
     if onnx_dir and os.path.isdir(onnx_dir):
-        # standard name from mlflow.onnx flavor
-        candidate = os.path.join(onnx_dir, "model.onnx")
-        if os.path.exists(candidate):
-            return candidate
-        # fallback: first .onnx inside onnx_dir (rarely needed)
-        for root, _, files in os.walk(onnx_dir):
-            for f in files:
-                if f.endswith(".onnx"):
-                    return os.path.join(root, f)
+        model_path = os.path.join(onnx_dir, "model.onnx")
+        if not os.path.exists(model_path):
+            # very old runs: pick first .onnx inside
+            for root, _, files in os.walk(onnx_dir):
+                for f in files:
+                    if f.endswith(".onnx"):
+                        model_path = os.path.join(root, f)
+                        break
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"No model.onnx found under {onnx_dir}")
+        return onnx_dir, model_path
 
-    # 2) Legacy fallbacks (if you ever had old runs)
+    # optional legacy fallbacks (single file)
     for p in ("onnx_model/model.onnx", "model.onnx", "outputs/checkpoints/model.onnx"):
-        local = _try_download(run_id, p)
-        if local and os.path.exists(local):
-            return local
+        mp = _try_download(run_id, p)
+        if mp and os.path.exists(mp):
+            return os.path.dirname(mp), mp
 
-    raise FileNotFoundError(
-        f"No ONNX found at expected locations for run {run_id}. "
-        f"Ensure the run logs 'onnx_model/model.onnx' with mlflow.onnx.log_model."
-    )
+    raise FileNotFoundError(f"No ONNX found for run {run_id}. Ensure training logs 'onnx_model/model.onnx'.")
 
-
-
-# ---------- ONNX metadata (labels) ----------
-def _classes_from_onnx_metadata(onnx_path: str) -> List[str]:
-    """
-    Extract class names from ONNX metadata_props.
-    Supported keys (string values):
-      - 'classes_json' -> JSON list or {"classes": [...]}
-      - 'classes'      -> JSON list OR comma/semicolon-separated string
-      - 'labels_json'  -> JSON list
-    Returns [] if not found or unparsable.
-    """
-    try:
-        m = onnx.load(onnx_path)
-    except Exception:
-        return []
-
-    props = {p.key: p.value for p in m.metadata_props}
-
-    # 1) JSON payloads
-    for k in ("classes_json", "labels_json"):
-        if k in props:
-            try:
-                obj = json.loads(props[k])
-                if isinstance(obj, dict) and "classes" in obj and isinstance(obj["classes"], list):
-                    return [str(x) for x in obj["classes"]]
-                if isinstance(obj, list):
-                    return [str(x) for x in obj]
-            except Exception:
-                pass
-
-    # 2) Simple 'classes' key: JSON list or delimited string
-    if "classes" in props:
-        val = props["classes"]
-        # try JSON
+def _load_labels_from_run_dir(onnx_dir: str) -> List[str]:
+    """Load labels strictly from run artifacts (labels.json → labels.txt)."""
+    pj = os.path.join(onnx_dir, "labels.json")
+    if os.path.exists(pj):
         try:
-            obj = json.loads(val)
+            with open(pj, "r", encoding="utf-8") as f:
+                obj = json.load(f)
+            if isinstance(obj, dict) and isinstance(obj.get("classes"), list):
+                return [str(x) for x in obj["classes"]]
             if isinstance(obj, list):
                 return [str(x) for x in obj]
         except Exception:
-            # split by common delimiters
-            for sep in (",", ";", "|"):
-                if sep in val:
-                    return [s.strip() for s in val.split(sep) if s.strip()]
-
+            pass
+    pt = os.path.join(onnx_dir, "labels.txt")
+    if os.path.exists(pt):
+        try:
+            with open(pt, "r", encoding="utf-8") as f:
+                return [ln.strip() for ln in f if ln.strip()]
+        except Exception:
+            pass
     return []
 
-
-# ---------- Public API ----------
 def resolve_and_load() -> Tuple[ort.InferenceSession, Dict[str, Any]]:
-    """
-    Resolve model (champion -> challenger -> latest), download ONNX, build ORT session,
-    and extract class names from ONNX metadata only.
-    """
     client = MlflowClient()
     model_name = os.getenv("MODEL_REGISTRY_NAME", SERVE_CFG.get("model_registry_name", "best_model"))
     pref_alias = os.getenv("PREFERRED_ALIAS", SERVE_CFG.get("preferred_alias", "champion"))
@@ -119,12 +95,13 @@ def resolve_and_load() -> Tuple[ort.InferenceSession, Dict[str, Any]]:
     alias = "champion" if (cand_pref and chosen.version == cand_pref.version) else \
             "challenger" if (cand_fb and chosen.version == cand_fb.version) else "latest"
 
-    onnx_path = _download_onnx(client, chosen.run_id)
+    # Always pull artifacts from the SOURCE RUN (labels live there)
+    onnx_dir, onnx_path = _download_run_onnx_dir(chosen.run_id)
 
     providers = SERVE_CFG.get("providers") or ["CPUExecutionProvider"]
     session = ort.InferenceSession(onnx_path, providers=providers)
 
-    classes = _classes_from_onnx_metadata(onnx_path)
+    classes = _load_labels_from_run_dir(onnx_dir)  # <- only from source run
 
     meta = {
         "runtime": "ort",
@@ -139,6 +116,6 @@ def resolve_and_load() -> Tuple[ort.InferenceSession, Dict[str, Any]]:
         "preprocess": SERVE_CFG.get("preprocess", {}),
         "channels": SERVE_CFG.get("channels", "rgb"),
         "input_name": session.get_inputs()[0].name,
-        "classes": classes,              # <- labels from ONNX metadata only
+        "classes": classes,
     }
     return session, meta

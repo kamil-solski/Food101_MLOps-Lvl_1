@@ -175,7 +175,6 @@ Project structure:
 ├── .env                       # Secrets, MLflow URIs, etc.
 ├── pyproject.toml             # Poetry environment & dependencies
 ├── MLproject                  # MLflow reproducibility config
-├── docker-compose.yml         # High-level orchestration file
 └── README.md
 ```
 
@@ -352,8 +351,8 @@ mlflow ui --backend-store-uri experiments/mlruns
 
 3. Deployment - when experiments are done, the best model is chosen and converted to onnx. Files to edit: 
 Two strategies will be presented:
-- FastAPI: for simplicity it will be local using other project Blog_CV on local machine
-- CI/CD: exporting to Blog_CV but on remote server
+- FastAPI: for simplicity it will be local using other project simple flask website on local machine
+- CI/CD: exporting to flask website but on remote server
 
 ```bash
 docker compose up -d inference

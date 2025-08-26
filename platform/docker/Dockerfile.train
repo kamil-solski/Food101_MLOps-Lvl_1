@@ -1,0 +1,4 @@
+FROM food101/base:latest
+
+ENV MODE=train
+CMD ["bash", "scripts/entrypoint.sh"]

@@ -198,138 +198,6 @@ There are three steps and places controlled by user to interact with project. Wh
 In Dockerfile we execute custom scipt which specify MODE of run:
 CMD ["bash", "scripts/entrypoint.sh"]
 
-in scripts/entrypoint.sh:
-```bash
-#!/bin/bash
-
-echo "Running in $MODE mode"
-
-if [ "$MODE" == "train" ]; then
-    echo "Starting training..."
-    python src/cli.py train --config src/config.yaml
-
-elif [ "$MODE" = "mlflow" ]; then
-    echo "Starting MLflow UI..."
-    mlflow ui --backend-store-uri experiments/mlruns --host 0.0.0.0 --port 5001
-
-elif [ "$MODE" == "serve" ]; then
-    echo "Serving FastAPI model..."
-    uvicorn inference_api.main:app --host 0.0.0.0 --port 8000
-
-elif [ "$MODE" == "dev" ]; then
-    echo "Starting Jupyter Notebook..."
-    jupyter notebook --ip=0.0.0.0 --port=8888 --allow-root --NotebookApp.token=''
-
-else
-    echo "Invalid mode: $MODE"
-    exit 1
-fi
-```
-
-with the following Dockerfile:
-```Dockerfile
-# Use Python base image
-FROM nvidia/cuda:12.2.0-cudnn8-runtime-ubuntu22.04
-
-WORKDIR /app
-
-RUN apt-get update && apt-get install -y \
-    python3 python3-pip curl git && \
-    rm -rf /var/lib/apt/lists/*
-
-# Install poetry
-RUN pip install --upgrade pip && pip install poetry
-
-# Disable virtualenvs (important for Docker)
-ENV POETRY_VIRTUALENVS_CREATE=false
-
-# Copy poetry project files and install deps
-COPY pyproject.toml poetry.lock ./
-# install with disabled prompt confirmations and without ANSI colors (clean logs)
-RUN poetry install --no-interaction --no-ansi
-
-# Copy entire source code
-COPY . .
-
-# Entrypoint
-RUN chmod +x scripts/entrypoint.sh
-CMD ["bash", "scripts/entrypoint.sh"]
-```
-
-```docker-compose:
-services:
-
-  train:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        MODE: train
-    environment:
-      - MODE=train
-    runtime: nvidia  # <-- for GPU support
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - capabilities: [gpu]
-    volumes:
-      - .:/app
-    stdin_open: true
-    tty: true
-
-  inference:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        MODE: serve
-    environment:
-      - MODE=serve
-      - MODEL_PATH=/app/outputs/checkpoints/model.onnx
-    ports:
-      - "8000:8000"
-    runtime: nvidia
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - capabilities: [gpu]
-    volumes:
-      - .:/app
-
-  notebooks:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        MODE: dev
-    environment:
-      - MODE=dev
-    ports:
-      - "8888:8888"
-    volumes:
-      - .:/app
-    runtime: nvidia
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - capabilities: [gpu]
-
-  mlflow:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        MODE: mlflow
-    environment:
-      - MODE=mlflow
-    ports:
-      - "5001:5001"
-    volumes:
-      - .:/app
-```
 
 1. Data preparation - there are notebooks in which user can prepare data (e.g. feature extraction/selection, cross-validation setup and other data manipulation)
 ```bash
@@ -360,6 +228,9 @@ docker compose stop inference
 ```
 
 System ML pipeline also supports simultaneous model training and serving, as well as Shadow or A/B testing implementation.
+
+Why do we deploy each component in a separate Docker container rather than in a single monolith? Because these end-to-end system components should be treated as microservices. They exchange information to ensure the efficient and correct operation of the entire system, but they can operate independently of each other.
+Separate containers allow us to add in Dockerfiles: non-interactive CI/CD jobs (train container), health checks endpoints for orchestration tools (serve container), add local directories for live editing (dev container). Considering that each container will be used with different frequency and independetly this separation optimize not only sizes, but also efficiency (only what is needed is built and run). Logging and monitoring is also separated this way.
 
 ### Adding new architectures
 1) src/models - place new files.py with models architectures

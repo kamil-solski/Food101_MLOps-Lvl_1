@@ -13,7 +13,7 @@ METRICS_DIR = OUTPUTS_DIR / "metrics"
 LOGS_DIR = OUTPUTS_DIR / "logs"
 FIGURES_DIR = OUTPUTS_DIR / "figures"
 PREDICTIONS_DIR = OUTPUTS_DIR / "predictions"
-EXPERIMENTS_DIR = PROJECT_ROOT / "experiments"  # created automatically
+EXPERIMENTS_DIR = PROJECT_ROOT / "experiments"  # created automatically in cli.py before get_paths()
 MLFLOW_TRACKING_DIR = EXPERIMENTS_DIR / "mlruns"  # created automatically
 
 def get_paths(config_path=PROJECT_ROOT / "src" / "config.yaml", fold=None, model_name=None):

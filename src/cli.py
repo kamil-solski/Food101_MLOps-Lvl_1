@@ -23,7 +23,7 @@ from src.evaluation.crossval_score import (
     select_best_model_from_auc
 )
 
-
+MLFLOW_TRACKING_DIR.mkdir(parents=True, exist_ok=True)
 mlflow.set_tracking_uri(MLFLOW_TRACKING_DIR.as_uri())
 
 def main():
@@ -163,7 +163,7 @@ if __name__ == "__main__":
     main()
 
 # run experiments:
-# cd Projekty_py/Food101_MLOps-Lvl_1
+# cd Food101_MLOps-Lvl_1
 # PYTHONPATH=. python src/cli.py
 # mlflow ui --backend-store-uri experiments/mlruns
 

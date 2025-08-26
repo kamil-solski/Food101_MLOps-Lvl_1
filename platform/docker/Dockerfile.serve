@@ -1,0 +1,11 @@
+FROM food101/base:latest
+
+# If you want CPU-only serving, you’re already good (ORT CPU is in deps).
+# For GPU ONNX Runtime, swap your deps to onnxruntime-gpu & set providers accordingly.
+
+ENV MODE=serve
+EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
+  CMD curl -fsS http://localhost:8000/health || exit 1
+
+CMD ["bash", "scripts/entrypoint.sh"]

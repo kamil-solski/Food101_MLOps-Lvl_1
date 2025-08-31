@@ -195,11 +195,22 @@ Docker-compose file will contain only Dockerfile for ML pipeline and Website, bu
 #### How to run:
 There are three steps and places controlled by user to interact with project. When creating end-to-end systems, containerization is the final step once all scripts have been checked locally.
 
+Inside platfrom/infrastructure/ create .env file and specify there path to your Data:
+```
+DATA_DIR=/path/to/your/Data_folder
+```
+
+Build Dockerfiles (while being inside project root folder):
+1) cd Food101_MLOps-Lvl_1
+2) docker build -f platform/docker/Dockerfile.base -t food101/base:latest .  # first build main dockerfile
+3) cd platform/infrastructure
+4) docker compose build train inference notebooks mlflow  # build the rest of dockerfiles
+
+
 In Dockerfile we execute custom scipt which specify MODE of run:
 CMD ["bash", "scripts/entrypoint.sh"]
 
-
-1. Data preparation - there are notebooks in which user can prepare data (e.g. feature extraction/selection, cross-validation setup and other data manipulation)
+1. Data preparation - there are notebooks in which user can prepare data (e.g. feature extraction/selection, cross-validation setup and other data manipulation). Prepare datasets by executing cells inside Subset_Food-101_generator.ipynb
 ```bash
 docker compose up notebooks  # and open website on localhost:8888 to experimient
 docker compose stop notebooks
@@ -208,11 +219,11 @@ docker compose stop notebooks
 ```bash
 docker compose run --rm train  # this command will run train once 
 docker compose stop train  # if previous command was executed in background
+docker compose up mlflow  # to check mlflow. Use localhost:5001
 ```
 
-Training outside docker containers
+Training outside docker containers (while being inside project root folder)
 ```bash
-cd Projekty_py/Food101
 PYTHONPATH=. python src/cli.py
 mlflow ui --backend-store-uri experiments/mlruns
 ```
@@ -225,6 +236,13 @@ Two strategies will be presented:
 ```bash
 docker compose up -d inference
 docker compose stop inference
+```
+
+Testing inference of model on host (remember to run on host training first because this run needs champion to be available and execute those command while being inside project root folder)
+```bash
+python -m uvicorn inference_api.main:app --host 0.0.0.0 --port 8000 --reload
+curl -s http://localhost:8000/health | jq
+curl -s -X POST http://localhost:8000/predict -F "file=@Data/cannoli.png" | jq  # cannoli.png is just example image inside Data folder (you could use any). You should see classes and probabilities for them
 ```
 
 System ML pipeline also supports simultaneous model training and serving, as well as Shadow or A/B testing implementation.

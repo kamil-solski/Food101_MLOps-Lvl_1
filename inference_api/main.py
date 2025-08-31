@@ -50,9 +50,8 @@ async def predict(file: UploadFile = File(...)):
     resp.headers["X-Model-Version"] = META["version"]
     return resp
 
-# To run locally outside docker container:
-# cd Projekty_py/Food101_MLOps-Lvl_1
+# To run locally outside docker container (while being inside project root folder):
 # python -m uvicorn inference_api.main:app --host 0.0.0.0 --port 8000 --reload
 # curl -s http://localhost:8000/health | jq
 # curl -s -X POST http://localhost:8000/predict -F "file=@Data/cannoli.png" | jq
-# You should see classes and probabilities for them
+# because inference docker is mounted to host over 8000 port we can also run above functions from host even for container runs

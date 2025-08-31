@@ -30,6 +30,7 @@ services:
             - capabilities: ["gpu"]
     volumes:
       - ../..:/app
+      - ${DATA_DIR}:/app/Data:ro
       - mlruns:/app/experiments/mlruns
     working_dir: /app
     stdin_open: true
@@ -44,7 +45,7 @@ services:
       <<: *common-env
       MODE: serve
     ports:
-      - "8000:8000"
+      - "8000:8000"  # allow for inference for both host and docker container runs 
     # gpus: all
     deploy:
       resources:
@@ -53,6 +54,7 @@ services:
             - capabilities: ["gpu"]
     volumes:
       - ../..:/app
+      - ${DATA_DIR}:/app/Data:ro
       - mlruns:/app/experiments/mlruns
     working_dir: /app
 
@@ -67,6 +69,7 @@ services:
       - "8888:8888"
     volumes:
       - ../..:/app
+      - ${DATA_DIR}:/app/Data:rw
     working_dir: /app
     # gpus: all
     deploy:
@@ -95,11 +98,10 @@ services:
 volumes:
   mlruns:
 
-# How to build:
-# 1) cd Food101_MLOps-Lvl_1
-# 2) docker build -f platform/docker/Dockerfile.base -t food101/base:latest .  # first build main dockerfile
-# 3) cd platform/infrastructure
-# 4) docker compose build train inference notebooks mlflow  # build the rest of dockerfiles
+# How to build (while being inside project root folder):
+# 1) docker build -f platform/docker/Dockerfile.base -t food101/base:latest .  # first build main dockerfile
+# 2) cd platform/infrastructure
+# 3) docker compose build train inference notebooks mlflow  # build the rest of dockerfiles
 
 # End-to-end system usage:
 # docker compose run --rm train

@@ -98,6 +98,13 @@ services:
 volumes:
   mlruns:
 
+# if website and Food101-MLOps are in separate project folders and use separate docker-compose.yml files
+# Remember to create network because it won't be created automaticaly: docker network create shared_network
+networks:
+  default:
+    external: true
+    name: shared_network  # the same network name should be in docker-compose.yml of flask website
+
 # How to build (while being inside project root folder):
 # 1) docker build -f platform/docker/Dockerfile.base -t food101/base:latest .  # first build main dockerfile
 # 2) cd platform/infrastructure

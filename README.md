@@ -195,7 +195,7 @@ Docker-compose file will contain only Dockerfile for ML pipeline and Website, bu
 #### How to run:
 There are three steps and places controlled by user to interact with project. When creating end-to-end systems, containerization is the final step once all scripts have been checked locally.
 
-Inside platfrom/infrastructure/ create .env file and specify there path to your Data:
+Inside platfrom/infrastructure/ create .env file and specify there absolute path to your Data:
 ```
 DATA_DIR=/path/to/your/Data_folder
 ```
@@ -209,6 +209,8 @@ Build Dockerfiles (while being inside project root folder):
 
 In Dockerfile we execute custom scipt which specify MODE of run:
 CMD ["bash", "scripts/entrypoint.sh"]
+
+!Obviously you run docker compose commands from place where docker-compose.yml is located!
 
 1. Data preparation - there are notebooks in which user can prepare data (e.g. feature extraction/selection, cross-validation setup and other data manipulation). Prepare datasets by executing cells inside Subset_Food-101_generator.ipynb
 ```bash

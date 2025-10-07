@@ -5,8 +5,12 @@ import torch.nn as nn
 import torch.optim as optim
 from datetime import datetime
 import matplotlib.pyplot as plt
+import gc
+import random
+import numpy as np
 from mlflow.tracking import MlflowClient
 
+from src.utils.helpers import set_seed
 from src.evaluation import loss_acc_plot, plot_roc_ovr
 from src.models import architectures
 from src.data.dataloader import get_dataloaders
@@ -26,17 +30,27 @@ from src.evaluation.crossval_score import (
 MLFLOW_TRACKING_DIR.mkdir(parents=True, exist_ok=True)
 mlflow.set_tracking_uri(MLFLOW_TRACKING_DIR.as_uri())
 
+
 def main():
-    
     # Data and config loading
     with open("src/config.yaml", "r") as f:
         config = yaml.safe_load(f)
+    
+    # Set random seed for reproducibility
+    set_seed(seed=config.get("random_seed", 42))
 
     dataset_name = config["dataset"]
     data_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     experiment_name = f"{dataset_name}_{data_str}"  # with this it should be used strategically (with changing hyperparameters for each experiment)
     
     mlflow.set_experiment(experiment_name)
+    
+    # Log experiment-level metadata for reproducibility
+    with mlflow.start_run(run_name="experiment_metadata"):
+        mlflow.set_tag("random_seed", config.get("random_seed", 42))
+        mlflow.set_tag("reproducible", "true")
+        mlflow.log_param("config_file", "src/config.yaml")
+    mlflow.end_run()
     
     dataset_path = DATA_DIR / dataset_name
     folds = sorted([d for d in dataset_path.iterdir() if d.is_dir() and d.name.startswith("fold")])
@@ -45,10 +59,10 @@ def main():
     for fold in folds:
         print(f"\n[INFO] Running: {fold.name}")
 
-        train_loader, val_loader, _, class_names = get_dataloaders(
+        train_loader, val_loader, class_names = get_dataloaders(  # for each fold sets we create dataloaders (look src/data/dataloader.py)
             image_size=config["image_size"],
             batch_size=config["batch_size"],
-            fold=fold
+            fold=fold  # fold is paramter that allow us distinguish between folds folders (because folds have different folder structure than common test). When fold is None, we use common (heldout) test set. 
         )
 
         # Handle loading architectures, hyperparamters and training on that
@@ -86,8 +100,16 @@ def main():
                         fig.savefig(paths["LOSS_ACC_PLOT_PATH"])
                         mlflow.log_figure(fig, artifact_file=paths["LOSS_ACC_PLOT_PATH"].name)
                         plt.close(fig)  # to prevent memory leak if too many plots are created. You won't see them during trainig anyway but in memory they will be saved 
+                        
+                        # Future-proofing if model would be very large or GPU memory very limited
+                        del model
+                        gc.collect()
+                        torch.cuda.empty_cache()
     
-    # TODO: add cleaning for train and val loaders
+    # Its nice to have cleanup if we couldn't fit all dataloader in memory at once (train, val and test)
+    del train_loader, val_loader
+    gc.collect()
+    torch.cuda.empty_cache()
     
     # get the best models for each architecture from cross-validation
     print("\n[INFO] Running automatic model selection from cross-validation results...")
@@ -99,7 +121,7 @@ def main():
     best_config = select_best_configs(scored)
     
     # Loading unified dataset for testing
-    _, _, test_loader, _ = get_dataloaders( 
+    test_loader, class_names = get_dataloaders( 
         image_size=config["image_size"],
         batch_size=config["batch_size"],
         fold=None  # then it will use common (heldout) test set
@@ -130,6 +152,11 @@ def main():
                 mlflow.log_metric(f"AUC_{cls}_{model_name}", meta["auc"])
 
     plt.close(fig)  # optional memory cleanup
+    
+    # Cleanup after final evaluation
+    del test_loader, model_dict, fig
+    gc.collect()
+    torch.cuda.empty_cache()
     
     best_model, _ = select_best_model_from_auc(auc_scores=auc_scores)  # we could save to temp file best score auc and during next experiment (doesn't matter how it would be called) compare recent current with previous and decide using client if we should update to production
     

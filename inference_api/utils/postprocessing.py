@@ -26,5 +26,5 @@ def map_indices_to_labels(
     out: List[Dict[str, float]] = []
     for i in indices:
         name = labels[i] if i < len(labels) else str(int(i))
-        out.append({"class": name, "prob": float(p[i])})
+        out.append({"id": int(i), "class": name, "prob": float(p[i])})
     return out

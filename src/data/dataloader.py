@@ -22,12 +22,12 @@ def get_dataloaders(image_size: int, batch_size: int, fold: str = None):
     nw = max(0, (os.cpu_count() or 0) // 4)
     pw = nw > 0
 
-    # Just so get_dataloader won't crash for only test
-    train_loader = None
-    val_loader = None
+    # Load class names manually from file (always needed)
+    with open(classes_file, "r") as f:
+        class_names = [line.strip() for line in f.readlines()]
 
-    # Load datasets
-    if fold is not None:
+    # Load datasets based on fold parameter to save memory
+    if fold is not None:  # Training phase: return train_loader, val_loader, class_names
         train_data = datasets.ImageFolder(train_dir, transform=transform)
         train_loader = DataLoader(
             train_data, 
@@ -45,21 +45,17 @@ def get_dataloaders(image_size: int, batch_size: int, fold: str = None):
             num_workers=nw, 
             persistent_workers=pw
         )
-
         
-    test_data = datasets.ImageFolder(test_dir, transform=transform)
-    test_loader = DataLoader(
-        test_data, 
-        batch_size=batch_size, 
-        shuffle=False, 
-        num_workers=nw, 
-        persistent_workers=pw
-    )
-
-    # Load class names manually from file
-    with open(classes_file, "r") as f:
-        class_names = [line.strip() for line in f.readlines()]
+        return train_loader, val_loader, class_names
         
-    # TODO: separate file for sanity check: dataset folder structure and loaded classes and classes extracted from train_data
-    
-    return train_loader, val_loader, test_loader, class_names
+    else:  # Evaluation phase: return test_loader, class_names
+        test_data = datasets.ImageFolder(test_dir, transform=transform)
+        test_loader = DataLoader(
+            test_data, 
+            batch_size=batch_size, 
+            shuffle=False, 
+            num_workers=nw, 
+            persistent_workers=pw
+        )
+        
+        return test_loader, class_names

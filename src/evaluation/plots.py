@@ -1,11 +1,11 @@
 import matplotlib
-matplotlib.use("Agg")  # prevent tkinter-related issues from saving plot - Agg is non-interactive backend. Doesn't require GUI. This headless environemnts are recomended for docker containers, environments wihtout display etc.
+matplotlib.use("Agg")  # prevent tkinter-related issues from saving plot - Agg is non-interactive backend. Doesn't require GUI. This headless environemnts are recomended for docker containers, environments without display etc.
 import matplotlib.pyplot as plt
-from pathlib import Path
-import torch
 from sklearn.metrics import roc_curve, auc
 from sklearn.preprocessing import label_binarize
 import math
+
+from src.training.engine import eval_step
 
 def loss_acc_plot(results):
     epochs = range(len(results['train_loss']))
@@ -23,7 +23,6 @@ def loss_acc_plot(results):
     
     return fig
 
-# TODO: should I seprate logic for inference and plot generation?
 def plot_roc_ovr(model_dict, test_dataloader, class_names):
     """
     Plots OvR ROC curves for each class, comparing all models.
@@ -42,43 +41,10 @@ def plot_roc_ovr(model_dict, test_dataloader, class_names):
         fig: matplotlib Figure
         auc_scores: dict[class_name][legend_label] = {"auc": float, "run_id": str}
     """
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    model_outputs = {}  # legend_label -> {"probs": np.array, "run_id": str}
-    all_labels = []
-
-    # Collect predictions for each model
-    for arch_name, info in model_dict.items():
-        model = info["model"]
-        run_id = info["run_id"]
-        hu = info["hu"]
-        lr = info["lr"]
-
-        legend_label = f"{arch_name}_hu{hu}_lr{lr}"
-
-        model = model.to(device).eval()
-        probs_list = []
-        labels_list = []
-
-        with torch.inference_mode():
-            for X_batch, y_batch in test_dataloader:
-                X_batch = X_batch.to(device)
-                y_batch = y_batch.to(device)
-
-                logits = model(X_batch)
-                probs = torch.softmax(logits, dim=1)
-                probs_list.append(probs.cpu())
-                labels_list.append(y_batch.cpu())
-
-        model_outputs[legend_label] = {
-            "probs": torch.cat(probs_list).numpy(),
-            "run_id": run_id
-        }
-
-        all_labels = torch.cat(labels_list).numpy()  # assumed to be the same across all models
-
-    # Binarize labels for OvR AUC
-    y_bin = label_binarize(all_labels, classes=list(range(len(class_names))))
+    # Get true labels from first model (all models use same test set)
+    first_model = next(iter(model_dict.values()))["model"]
+    y_true, _ = eval_step(first_model, test_dataloader)
+    y_bin = label_binarize(y_true, classes=list(range(len(class_names))))
 
     # Setup plot grid
     num_classes = len(class_names)
@@ -93,15 +59,27 @@ def plot_roc_ovr(model_dict, test_dataloader, class_names):
         ax = axes[idx]
         auc_scores[class_name] = {}
 
-        for label, data in model_outputs.items():
-            probs = data["probs"]
-            run_id = data["run_id"]
-
-            fpr, tpr, _ = roc_curve(y_bin[:, idx], probs[:, idx])
+        # Loop through each model
+        for arch_name, info in model_dict.items():
+            model = info["model"]
+            run_id = info["run_id"]
+            hu = info["hu"]
+            lr = info["lr"]
+            
+            legend_label = f"{arch_name}_hu{hu}_lr{lr}"
+            
+            # Evaluate this specific model
+            _, y_probs = eval_step(model, test_dataloader)
+            
+            # Compute ROC curve for this class
+            fpr, tpr, _ = roc_curve(y_bin[:, idx], y_probs[:, idx])
             roc_auc = auc(fpr, tpr)
-
-            ax.plot(fpr, tpr, label=f"{label} (AUC = {roc_auc:.3f})")
-            auc_scores[class_name][label] = {
+            
+            # Plot the curve
+            ax.plot(fpr, tpr, label=f"{legend_label} (AUC = {roc_auc:.3f})")
+            
+            # Store AUC score
+            auc_scores[class_name][legend_label] = {
                 "auc": roc_auc,
                 "run_id": run_id
             }

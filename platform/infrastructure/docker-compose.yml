@@ -92,7 +92,7 @@ services:
       - "5001:5001"
     volumes:
       - ../..:/app
-      - mlruns:/app/experiments/mlruns
+      - mlruns:/app/experiments/mlruns  # that means 
     working_dir: /app
 
 volumes:

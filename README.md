@@ -154,6 +154,7 @@ Project structure:
 │   │   ├── github-actions/          # GitHub Actions YAML workflows
 │   │   │   ├── ml_pipeline.yml      # ML training + model deployment
 │   │   ├── gitlab-ci/               # (Optional) GitLab CI pipeline configs
+│   │   ├── .env
 │   │   └── docker-compose.yml      # Compose for local orchestration
 │   └── docker/                     # Dockerfiles
 │       ├── Dockerfile.base         # Base image with CUDA, Python, Poetry
@@ -162,6 +163,7 @@ Project structure:
 │       └── Dockerfile.dev          # Dev notebook environment
 │
 ├── logs/                             # Local dev logs (optional gitignored)
+│
 ├── inference_api                     # entire logic for program that is using our trained model (FastAPI)
 │   ├── main.py                # FastAPI app + endpoints. Run this file for local testing just like cli.py for training
 │   ├── inference/
@@ -192,6 +194,13 @@ Of course, at each of these stages, MLE can make adjustments to the system in ac
 This project involves inference of model on website with FastAPI. For simplicity lets host our website and Food101-MLOps project on the same machine. That means we will use docker-compose to orchestrate both website and Food101-MLOps. In real projects, this is not always the case. Sometimes the website and ML pipeline are located on different servers. In such cases, instead of compose, we use Kubernetes, for example.
 Docker-compose file will contain only Dockerfile for ML pipeline and Website, but it could also other container like postgres database.
 
+### Docker envs:
+We have a base Dockerfile and child Dockerfiles that leverage the base file. This means:
+- we have a faster build process (which is essential for quickly dealing with crashes and avoiding unnecessary downloads)
+- smaller images mean less attack surface and size (reduce storage)
+- shared layers reduce transfer time
+- faster patch deployment
+
 #### How to run:
 There are three steps and places controlled by user to interact with project. When creating end-to-end systems, containerization is the final step once all scripts have been checked locally.
 
@@ -212,6 +221,8 @@ CMD ["bash", "scripts/entrypoint.sh"]
 
 !Obviously you run docker compose commands from place where docker-compose.yml is located!
 
+WARRNING!!! docker and host got completly separate logging, so for example model trained on host won't be used when running docker inference.
+
 1. Data preparation - there are notebooks in which user can prepare data (e.g. feature extraction/selection, cross-validation setup and other data manipulation). Prepare datasets by executing cells inside Subset_Food-101_generator.ipynb
 ```bash
 docker compose up notebooks  # and open website on localhost:8888 to experimient
@@ -223,11 +234,12 @@ docker compose run --rm train  # this command will run train once
 docker compose stop train  # if previous command was executed in background
 docker compose up mlflow  # to check mlflow. Use localhost:5001
 ```
+Remember, host runs won't appear in docker runs mlflow and vice versa
 
 Training outside docker containers (while being inside project root folder)
 ```bash
 PYTHONPATH=. python src/cli.py
-mlflow ui --backend-store-uri experiments/mlruns
+mlflow ui --backend-store-uri experiments/mlruns  # it uses localhost:5000
 ```
 
 3. Deployment - when experiments are done, the best model is chosen and converted to onnx. Files to edit: 
@@ -244,8 +256,10 @@ Testing inference of model on host (remember to run on host training first becau
 ```bash
 python -m uvicorn inference_api.main:app --host 0.0.0.0 --port 8000 --reload
 curl -s http://localhost:8000/health | jq
-curl -s -X POST http://localhost:8000/predict -F "file=@Data/cannoli.png" | jq  # cannoli.png is just example image inside Data folder (you could use any). You should see classes and probabilities for them
+curl -s -X POST http://localhost:8000/predict -F "file=@Data/cannoli.png" | jq  # cannoli.png is just example image inside Data folder (just download any food image jpg or png, fix path and test inference). You should see classes and probabilities for them
 ```
+
+To inference model on website clone the following repo: https://github.com/kamil-solski/Test_website.git and start website. Enter localhost:5002/food101 in browser.
 
 System ML pipeline also supports simultaneous model training and serving, as well as Shadow or A/B testing implementation.
 
@@ -313,3 +327,6 @@ To check how it look like localy you can download Test Website repo that uses fl
 
 ### End
 Once you understand how the code works and why it was designed this way, you can move on to analyzing my other projects, where the process is more practical and complete (it creates the life cycle of a working artificial intelligence system).
+
+### Troubleshooting
+* If you make chages, especially with folders names of mlflow or permmissions changeed -> rm -rf /outputs /experiments (while being in root). Also to fix compatibility issues clean volume for docker (docker compose down -v). This will obviously remove all saved runs (with artifacts and models).

@@ -85,9 +85,5 @@ def train_with_mlflow(model: torch.nn.Module,
         input_example=example_input[:1].cpu().numpy(),
         signature=signature
     )
-    
-    # Clear cache
-    gc.collect()
-    torch.cuda.empty_cache()
 
     return results

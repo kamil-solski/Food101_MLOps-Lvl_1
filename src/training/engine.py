@@ -46,3 +46,35 @@ def val_step(model: torch.nn.Module,
     test_loss = test_loss / len(dataloader)
     test_acc = test_acc / len(dataloader)
     return test_loss, test_acc
+
+def eval_step(model, test_dataloader):
+    """
+    Evaluates a single model on test dataset.
+    
+    Args:
+        model: torch.nn.Module
+        test_dataloader: DataLoader
+    
+    Returns:
+        y_true: np.array of true labels
+        y_probs: np.array of predicted probabilities
+    """
+    model = model.to(device).eval()
+    probs_list = []
+    labels_list = []
+
+    with torch.inference_mode():
+        for X_batch, y_batch in test_dataloader:
+            X_batch = X_batch.to(device)
+            y_batch = y_batch.to(device)
+
+            logits = model(X_batch)
+            probs = torch.softmax(logits, dim=1)
+            probs_list.append(probs.cpu())
+            labels_list.append(y_batch.cpu())
+
+    y_true = torch.cat(labels_list).numpy()
+    y_probs = torch.cat(probs_list).numpy()
+
+    return y_true, y_probs
+

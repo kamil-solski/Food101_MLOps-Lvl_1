@@ -40,23 +40,10 @@ def _download_run_onnx_dir(run_id: str) -> Tuple[str, str]:
     if onnx_dir and os.path.isdir(onnx_dir):
         model_path = os.path.join(onnx_dir, "model.onnx")
         if not os.path.exists(model_path):
-            # very old runs: pick first .onnx inside
-            for root, _, files in os.walk(onnx_dir):
-                for f in files:
-                    if f.endswith(".onnx"):
-                        model_path = os.path.join(root, f)
-                        break
-        if not os.path.exists(model_path):
             raise FileNotFoundError(f"No model.onnx found under {onnx_dir}")
         return onnx_dir, model_path
 
-    # optional legacy fallbacks (single file)
-    for p in ("onnx_model/model.onnx", "model.onnx", "outputs/checkpoints/model.onnx"):
-        mp = _try_download(run_id, p)
-        if mp and os.path.exists(mp):
-            return os.path.dirname(mp), mp
-
-    raise FileNotFoundError(f"No ONNX found for run {run_id}. Ensure training logs 'onnx_model/model.onnx'.")
+    raise FileNotFoundError(f"No onnx_model found for run {run_id}. Ensure training logs 'onnx_model/model.onnx'.")
 
 def _load_labels_from_run_dir(onnx_dir: str) -> List[str]:
     """Load labels strictly from run artifacts (labels.json → labels.txt)."""

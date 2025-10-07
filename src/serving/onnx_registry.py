@@ -57,7 +57,7 @@ def _export_onnx_from_pytorch_run(
             output_names=[output_name],
             opset_version=opset,
             dynamic_axes={input_name: {0: "batch"}, output_name: {0: "batch"}},
-            dynamo=True,
+            #dynamo=True,  # dynamic_axes with dynamo could cause conflicts
             external_data=True,  # just to ensure that *.data file is created (mlflow requires it when loading)
         )
     return onnx_path.as_posix()
@@ -116,7 +116,7 @@ def ensure_onnx_and_register(
             registered_model_name=None,
         )
         if class_names:
-            mlflow.log_dict({"classes": class_names}, artifact_file="onnx_model/labels.json")  # TODO: just log as labels.json, correct also loader.py
+            mlflow.log_dict({"classes": class_names}, artifact_file="onnx_model/labels.json")
 
     result = mlflow.register_model(
         model_uri=f"runs:/{run_id}/onnx_model",

@@ -5,3 +5,4 @@ learning_rates: [0.0001, 0.001]
 hidden_units: [8, 16]
 architectures: ["Food101", "Food101_0"]
 dataset: "food-101_50%_tr70_va15_te15"
+random_seed: 42

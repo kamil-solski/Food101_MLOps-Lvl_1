@@ -1,5 +1,0 @@
-FROM food101/base:latest
-
-ENV MODE=dev
-EXPOSE 8888
-CMD ["bash", "scripts/entrypoint.sh"]

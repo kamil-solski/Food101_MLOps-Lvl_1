@@ -1,5 +1,8 @@
-This project was initially inspired by Daniel Bourke's PyTorch Deep Learning series (https://github.com/mrdbourke/pytorch-deep-learning.git). While the overall system, pipeline design, and MLOps integrations are original and significantly expanded, one early notebook in this repository was adapted from concepts and patterns explored in his tutorials.
+# Disclaimer
+This project was initially inspired by Daniel Bourke's PyTorch Deep Learning series (https://github.com/mrdbourke/pytorch-deep-learning.git). While the overall system, pipeline design, and MLOps integrations are original and significantly expanded, one early notebook in this repository was adapted from concepts and patterns explored in his tutorials. Since we are dealing with image recognition here, our system will be limited to neural networks, as they work best for such tasks. So there is no room for classic ML methods here, and this involves decisions in system design.  
 
+# MLOps based on Food101 data
+Every end-to-end AI system is designed for a specific dataset and its characteristics. The dataset may grow, but what we want to get out of it should remain the same. However, we can simplify the system if we decide to include only a specific family of models (the system was not designed to be compatible with other methods). By making the system more specialized, as in this case, we make it easier to program and thus easier to understand. In other repositories, we will explore much more flexible systems.
 In this project we will deal with real-time inference (because we expect low latency predictions). Even though it is not continuous real-time inference (with no downtime like in monitoring systems), it is still considered real-time. Even if user provides with two or more photos, if model process requests one by one and retrun immediately predictions for each, it is still real-time inference.
 It is impossible to design an entire system in your head. Many functions and decisions regarding implementation are made during the course of the project, so it is worth starting from the ground up. In this course we will learn how to create and design AI systems in three levels of complexity. Why this way? The more you delve into the complexity of AI systems, the more you realize the trade-offs involved. Like it is not necessarily a bad thing, but it will have consequences that will become apparent later on, so you need to be aware of them (for example log with onnx and then register or leave pytorch format for registry and convert during inference run). By starting with simpler solutions, you will be able to grasp what it is all about, ask questions, and adopt optimal implementation strategies.
 
@@ -110,7 +113,7 @@ Project structure:
 │
 ├── experiments/                   # MLFlow tracking runs
 │   ├── mlruns/                    # MLFlow local run storage
-│   │   ├── experiment_id         # For example for food-101_30%_tr70_va15_te15_20250802
+│   │   ├── experiment_id         # For example for food-101_30%_tr70_va15_te15_20250802. I use time stamp because mlflow has that annoying logic that if you delete some experiment you won't be able to use exact name again without deleting whole experiments directory. Logic implemented by prevents that.
 │   │   │   ├── run_id            # combination of used fold, model architecture and its hyperparameters
 │   │   │   │   ├── artifacts/
 │   │   │   │   │   └── loss_accuracy_plot.png  # two plots overlay loss from train validation and accuracy from train and validation         
@@ -159,8 +162,7 @@ Project structure:
 │   └── docker/                     # Dockerfiles
 │       ├── Dockerfile.base         # Base image with CUDA, Python, Poetry
 │       ├── Dockerfile.train        # Training container
-│       ├── Dockerfile.serve        # FastAPI inference container
-│       └── Dockerfile.dev          # Dev notebook environment
+│       └── Dockerfile.serve        # FastAPI inference container
 │
 ├── logs/                             # Local dev logs (optional gitignored)
 │
@@ -204,17 +206,15 @@ We have a base Dockerfile and child Dockerfiles that leverage the base file. Thi
 #### How to run:
 There are three steps and places controlled by user to interact with project. When creating end-to-end systems, containerization is the final step once all scripts have been checked locally.
 
-Inside platfrom/infrastructure/ create .env file and specify there absolute path to your Data:
+Inside platform/infrastructure/ create .env file and specify there absolute path to your Data:
 ```
 DATA_DIR=/path/to/your/Data_folder
 ```
 
 Build Dockerfiles (while being inside project root folder):
-1) cd Food101_MLOps-Lvl_1
-2) docker build -f platform/docker/Dockerfile.base -t food101/base:latest .  # first build main dockerfile
-3) cd platform/infrastructure
-4) docker compose build train inference notebooks mlflow  # build the rest of dockerfiles
-
+1) cd Food101_MLOps-Lvl_1/platform/infrastructure
+2) docker compose build base
+3) docker compose build train inference mlflow
 
 In Dockerfile we execute custom scipt which specify MODE of run:
 CMD ["bash", "scripts/entrypoint.sh"]
@@ -223,18 +223,21 @@ CMD ["bash", "scripts/entrypoint.sh"]
 
 WARRNING!!! docker and host got completly separate logging, so for example model trained on host won't be used when running docker inference.
 
-1. Data preparation - there are notebooks in which user can prepare data (e.g. feature extraction/selection, cross-validation setup and other data manipulation). Prepare datasets by executing cells inside Subset_Food-101_generator.ipynb
-```bash
-docker compose up notebooks  # and open website on localhost:8888 to experimient
-docker compose stop notebooks
-```
+1. Data preparation - Prepare datasets by running the notebook locally or implementing the data preparation logic in Python scripts. The Subset_Food-101_generator.ipynb notebook can be run locally to create the required dataset structure.
+
 2. Running training - when data is ready, user can add architectures, modify config.yaml etc. to customize training and experiments stage.
 ```bash
 docker compose run --rm train  # this command will run train once 
 docker compose stop train  # if previous command was executed in background
-docker compose up mlflow  # to check mlflow. Use localhost:5001
 ```
-Remember, host runs won't appear in docker runs mlflow and vice versa
+
+3. Viewing MLflow UI - Access experiment tracking and model artifacts:
+```bash
+docker compose up -d mlflow  # MLflow UI available at http://localhost:5000
+docker compose stop mlflow   # stop when done
+```
+
+**Note**: All containers use bind mounts to share the experiments directory, so MLflow artifacts and experiments are accessible both in Docker and on the host filesystem.
 
 Training outside docker containers (while being inside project root folder)
 ```bash
@@ -306,6 +309,53 @@ But, at the end of training we should have two best models for each architecture
 |  comb3  |  comb3  |  comb3  |   avg3    |
 
 I decided to manually implement hyperparamter automation (and not using GridSearch), because it will give us flexibility and control for future implementations. Understanding how algorithms like GridSearch work is essetial when working with end-to-end automated AI system.
+
+#### Loop Order Design Decision
+The training pipeline uses a specific nested loop order for optimal memory management and experiment organization:
+
+```python
+for arch_name in config["architectures"]:        # Outer loop
+    for hu in config["hidden_units"]:            # Middle loop  
+        for lr in config["learning_rates"]:      # Inner loop
+            for fold in folds:                   # Innermost loop
+                # Train model on this fold
+```
+
+**Why this order matters:**
+
+1. **Memory Efficiency**: 
+   - Dataloaders are created once per hyperparameter combination, not per fold
+   - Better memory cleanup between hyperparameter combinations
+   - Prevents memory accumulation across different configs
+
+2. **Logical Experiment Grouping**:
+   - All folds for the same hyperparameter combination are trained consecutively
+   - Easier to compare results across folds for the same config
+   - Better MLflow experiment organization and visualization
+
+3. **Resource Management**:
+   - Predictable memory usage patterns
+   - Can implement early stopping based on cross-validation results
+   - Better GPU memory management with proper cleanup cycles
+
+4. **Debugging and Monitoring**:
+   - Clear progress indication: "Training Arch1+Config1 across all folds"
+   - Easier to identify which hyperparameter combination is causing issues
+   - Better error isolation and recovery
+
+**Alternative (problematic) order:**
+```python
+for fold in folds:                    # Would be outer loop
+    for arch_name in config["architectures"]:
+        for hu in config["hidden_units"]:
+            for lr in config["learning_rates"]:  # Would be inner loop
+```
+
+This would cause:
+- Memory accumulation (dataloaders kept in memory across all configs)
+- Poor experiment organization in MLflow
+- Difficult debugging and monitoring
+- Inefficient resource usage
 
 ### Models
 We desgin model architectures and place them inside src/model directory (as python files). From there, they will be used to take hyperparameter combination and run on specific fold.

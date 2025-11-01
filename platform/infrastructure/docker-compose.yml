@@ -18,6 +18,8 @@ services:
       context: ../..
       dockerfile: platform/docker/Dockerfile.train
     image: food101/train:latest
+    depends_on:
+      - base
     environment:
       <<: *common-env
       MODE: train
@@ -31,7 +33,7 @@ services:
     volumes:
       - ../..:/app
       - ${DATA_DIR}:/app/Data:ro
-      - mlruns:/app/experiments/mlruns
+      - ../../experiments:/app/experiments
     working_dir: /app
     stdin_open: true
     tty: true
@@ -41,62 +43,33 @@ services:
       context: ../..
       dockerfile: platform/docker/Dockerfile.serve
     image: food101/serve:latest
+    depends_on:
+      - base
     environment:
       <<: *common-env
       MODE: serve
     ports:
       - "8000:8000"  # allow for inference for both host and docker container runs 
-    # gpus: all
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - capabilities: ["gpu"]
+#    deploy:        # comment out for GPU inference
+#      resources:
+#        reservations:
+#          devices:
+#            - capabilities: ["gpu"]
     volumes:
       - ../..:/app
       - ${DATA_DIR}:/app/Data:ro
-      - mlruns:/app/experiments/mlruns
+      - ../../experiments:/app/experiments
     working_dir: /app
-
-  notebooks:
-    build:
-      context: ../..
-      dockerfile: platform/docker/Dockerfile.dev
-    image: food101/dev:latest
-    environment:
-      MODE: dev
-    ports:
-      - "8888:8888"
-    volumes:
-      - ../..:/app
-      - ${DATA_DIR}:/app/Data:rw
-    working_dir: /app
-    # gpus: all
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - capabilities: ["gpu"]
 
   mlflow:
     build:
       context: ../..
-      dockerfile: platform/docker/Dockerfile.base
+      dockerfile: platform/docker/Dockerfile.mlflow
     image: food101/mlflow:latest
-    environment:
-      MODE: mlflow
-      MLFLOW_TRACKING_URI: "file:///app/experiments/mlruns"
-    command: >
-      bash -lc "mlflow ui --backend-store-uri /app/experiments/mlruns --host 0.0.0.0 --port 5001"
     ports:
-      - "5001:5001"
+      - "5000:5000"
     volumes:
-      - ../..:/app
-      - mlruns:/app/experiments/mlruns  # that means 
-    working_dir: /app
-
-volumes:
-  mlruns:
+      - ../../experiments:/app/experiments
 
 # if website and Food101-MLOps are in separate project folders and use separate docker-compose.yml files
 # Remember to create network because it won't be created automaticaly: docker network create shared_network
@@ -105,14 +78,16 @@ networks:
     external: true
     name: shared_network  # the same network name should be in docker-compose.yml of flask website
 
+# Setup (create .env file in this directory):
+# DATA_DIR=/path/to/your/Data_folder
+
 # How to build (while being inside project root folder):
 # 1) docker build -f platform/docker/Dockerfile.base -t food101/base:latest .  # first build main dockerfile
 # 2) cd platform/infrastructure
-# 3) docker compose build train inference notebooks mlflow  # build the rest of dockerfiles
+# 3) docker compose build train inference mlflow  # build the rest of dockerfiles
 
 # End-to-end system usage:
 # docker compose run --rm train
 # docker compose up -d inference
-# docker compose up notebooks
-# docker compose up mlflow
+# docker compose up -d mlflow  # MLflow UI available at http://localhost:5000
 

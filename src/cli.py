@@ -55,25 +55,30 @@ def main():
     dataset_path = DATA_DIR / dataset_name
     folds = sorted([d for d in dataset_path.iterdir() if d.is_dir() and d.name.startswith("fold")])
 
-    # Handle cross-validation
-    for fold in folds:
-        print(f"\n[INFO] Running: {fold.name}")
+    # Handle cross-validation with optimized loop order for memory efficiency
+    # Loop order: architectures -> hyperparameters -> folds (innermost)
+    # This allows better memory management and logical grouping of experiments
+    for arch_name in config["architectures"]:
+        model_class = architectures[arch_name]
+        for hu in config["hidden_units"]:
+            for lr in config["learning_rates"]:
+                print(f"\n[INFO] Training {arch_name} with hu={hu}, lr={lr} across all folds")
+                
+                # Train this hyperparameter combination across all folds
+                for fold in folds:
+                    print(f"  [INFO] Running fold: {fold.name}")
 
-        train_loader, val_loader, class_names = get_dataloaders(  # for each fold sets we create dataloaders (look src/data/dataloader.py)
-            image_size=config["image_size"],
-            batch_size=config["batch_size"],
-            fold=fold  # fold is paramter that allow us distinguish between folds folders (because folds have different folder structure than common test). When fold is None, we use common (heldout) test set. 
-        )
+                    # Create dataloaders for this specific fold
+                    train_loader, val_loader, class_names = get_dataloaders(
+                        image_size=config["image_size"],
+                        batch_size=config["batch_size"],
+                        fold=fold  # fold parameter allows us to distinguish between folds folders
+                    )
 
-        # Handle loading architectures, hyperparamters and training on that
-        for arch_name in config["architectures"]:
-            model_class = architectures[arch_name]
-            for hu in config["hidden_units"]:
-                for lr in config["learning_rates"]:
                     model = model_class(input_shape=3, hidden_units=hu, output_shape=len(class_names))
                     model = model.to("cuda" if torch.cuda.is_available() else "cpu")
 
-                    model_name = f"{arch_name}_hu{hu}_lr{lr}"  # we want only architecture name here because full path will break traing loop
+                    model_name = f"{arch_name}_hu{hu}_lr{lr}"
                     run_name = f"{model_name}_{fold.name}"
                     
                     paths = get_paths(fold=fold.name, model_name=model_name)
@@ -98,18 +103,19 @@ def main():
                         # Save training curve as image
                         fig = loss_acc_plot(results)
                         fig.savefig(paths["LOSS_ACC_PLOT_PATH"])
-                        mlflow.log_figure(fig, artifact_file=paths["LOSS_ACC_PLOT_PATH"].name)
-                        plt.close(fig)  # to prevent memory leak if too many plots are created. You won't see them during trainig anyway but in memory they will be saved 
                         
-                        # Future-proofing if model would be very large or GPU memory very limited
+                        # Log to MLflow with proper artifact path
+                        mlflow.log_figure(fig, "figures/training_plot.png")
+                        plt.close(fig)  # prevent memory leak
+                        
+                        # Cleanup after each model training
                         del model
                         gc.collect()
                         torch.cuda.empty_cache()
-    
-    # Its nice to have cleanup if we couldn't fit all dataloader in memory at once (train, val and test)
-    del train_loader, val_loader
-    gc.collect()
-    torch.cuda.empty_cache()
+                
+                # Cleanup after completing all folds for this hyperparameter combination
+                gc.collect()
+                torch.cuda.empty_cache()
     
     # get the best models for each architecture from cross-validation
     print("\n[INFO] Running automatic model selection from cross-validation results...")
@@ -139,19 +145,23 @@ def main():
         class_names=class_names
     )
 
-    # Save locally - will be deleted in future version
-    #save_path = FIGURES_DIR / "roc_per_class.png"
-    #save_path.parent.mkdir(parents=True, exist_ok=True)
-    #fig.savefig(save_path)
-
-    # Log to MLflow
-    with mlflow.start_run(run_name="evaluate_roc_experiment"):
-        mlflow.log_figure(fig, artifact_file="roc_per_class.png")
+    # Log ROC plot to MLflow as experiment-level artifact
+    print(f"[INFO] Logging ROC analysis to MLflow for experiment: {experiment_name}")
+    with mlflow.start_run(run_name="experiment_roc_analysis"):
+        mlflow.log_figure(fig, "figures/roc_per_class.png")
+        
+        # Log AUC metrics for each class and model
         for cls, model_aucs in auc_scores.items():
             for model_name, meta in model_aucs.items():
                 mlflow.log_metric(f"AUC_{cls}_{model_name}", meta["auc"])
+        
+        # Log summary metrics
+        mlflow.set_tag("analysis_type", "roc_evaluation")
+        mlflow.set_tag("total_classes", len(class_names))
+        mlflow.set_tag("total_models", len(model_dict))
+        print(f"[INFO] Successfully logged ROC analysis with {len(class_names)} classes and {len(model_dict)} models")
 
-    plt.close(fig)  # optional memory cleanup
+    plt.close(fig)  # prevent memory leak
     
     # Cleanup after final evaluation
     del test_loader, model_dict, fig
